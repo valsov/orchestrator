@@ -18,14 +18,17 @@ import (
 type Task struct {
 	Id            uuid.UUID
 	Name          string
+	ContainerId   string
 	State         State
 	Image         string
-	Memory        int
-	Disk          int
+	Cpu           float64
+	Memory        int64
+	Disk          int64
 	ExposedPorts  nat.PortSet
 	PortBindings  map[string]string
 	RestartPolicy string
 	StartTime     time.Time
+	FinishTime    time.Time
 }
 
 type TaskEvent struct {
@@ -43,16 +46,38 @@ type Config struct {
 	AttachStderr  bool
 	Cmd           []string
 	Image         string
+	Cpu           float64
 	Memory        int64
 	Disk          int64
 	Env           []string
 	RestartPolicy string
+	ExposedPorts  nat.PortSet
+}
+
+func NewConfig(t *Task) *Config {
+	return &Config{
+		Name:          t.Name,
+		ExposedPorts:  t.ExposedPorts,
+		Image:         t.Image,
+		Cpu:           t.Cpu,
+		Memory:        t.Memory,
+		Disk:          t.Disk,
+		RestartPolicy: t.RestartPolicy,
+	}
 }
 
 type Docker struct {
 	Client      *client.Client
 	Config      Config
 	ContainerId string
+}
+
+func NewDocker(c *Config) *Docker {
+	dClient, _ := client.NewClientWithOpts(client.FromEnv)
+	return &Docker{
+		Client: dClient,
+		Config: *c,
+	}
 }
 
 type DockerResult struct {
@@ -104,4 +129,20 @@ func (d *Docker) Run() DockerResult {
 		Action:      "start",
 		Result:      "success",
 	}
+}
+
+func (d *Docker) Stop(containerId string) DockerResult {
+	log.Printf("attempting to stop container %s", containerId)
+	ctx := context.Background()
+	if err := d.Client.ContainerStop(ctx, containerId, container.StopOptions{}); err != nil {
+		log.Println(err)
+		panic(err)
+	}
+
+	if err := d.Client.ContainerRemove(ctx, containerId, types.ContainerRemoveOptions{}); err != nil {
+		log.Println(err)
+		panic(err)
+	}
+
+	return DockerResult{Action: "stop", Result: "success", ContainerId: containerId}
 }
