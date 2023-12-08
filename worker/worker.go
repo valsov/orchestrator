@@ -18,11 +18,19 @@ type Worker struct {
 	TaskCount int
 }
 
+func (w *Worker) GetTasks() []*task.Task {
+	result := make([]*task.Task, 0, len(w.Db))
+	for _, t := range w.Db {
+		result = append(result, t)
+	}
+	return result
+}
+
 func (w *Worker) AddTask(t *task.Task) {
 	w.Queue.Enqueue(t)
 }
 
-func (w *Worker) RunTask() task.DockerResult {
+func (w *Worker) RunNextTask() task.DockerResult {
 	t := w.Queue.Dequeue()
 	if t == nil {
 		log.Println("No task in queue")

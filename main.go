@@ -26,7 +26,7 @@ func main() {
 
 	fmt.Println("starting task")
 	w.AddTask(&t)
-	result := w.RunTask()
+	result := w.RunNextTask()
 	if result.Error != nil {
 		panic(result.Error)
 	}
@@ -37,7 +37,7 @@ func main() {
 	fmt.Print("stopping task")
 	t.State = task.Completed
 	w.AddTask(&t)
-	result = w.RunTask()
+	result = w.RunNextTask()
 	if result.Error != nil {
 		panic(result.Error)
 	}
