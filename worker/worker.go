@@ -12,10 +12,11 @@ import (
 )
 
 type Worker struct {
-	Name      string
-	Queue     queue.Queue
-	Db        map[uuid.UUID]*task.Task
-	TaskCount int
+	Name  string
+	Queue queue.Queue
+	Db    map[uuid.UUID]*task.Task
+	//TaskCount int
+	Stats *Stats
 }
 
 func (w *Worker) GetTasks() []*task.Task {
@@ -100,5 +101,8 @@ func (w *Worker) StopTask(t *task.Task) task.DockerResult {
 }
 
 func (w *Worker) CollectStats() {
-	panic("TODO")
+	for {
+		w.Stats = GetStats()
+		time.Sleep(10 * time.Second)
+	}
 }
