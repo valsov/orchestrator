@@ -2,8 +2,12 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"orchestrator/manager"
 	"orchestrator/task"
 	"orchestrator/worker"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/golang-collections/collections/queue"
@@ -11,34 +15,69 @@ import (
 )
 
 func main() {
-	db := make(map[uuid.UUID]*task.Task)
+	host := os.Getenv("CUBE_HOST")
+	port, _ := strconv.Atoi(os.Getenv("CUBE_PORT"))
+
+	log.Println("Starting Cube worker")
+
 	w := worker.Worker{
-		Db:    db,
 		Queue: *queue.New(),
+		Db:    make(map[uuid.UUID]*task.Task),
+	}
+	api := worker.Api{Address: host, Port: port, Worker: &w}
+
+	go runTasks(&w)
+	go w.CollectStats()
+	go api.StartRouter()
+
+	workers := []string{fmt.Sprintf("%s:%d", host, port)}
+	m := manager.New(workers)
+
+	for i := 0; i < 3; i++ {
+		t := task.Task{
+			Id:    uuid.New(),
+			Name:  fmt.Sprintf("test-container-%d", i),
+			State: task.Scheduled,
+			Image: "strm/helloworld-http",
+		}
+		te := task.TaskEvent{
+			Id:    uuid.New(),
+			State: task.Running,
+			Task:  t,
+		}
+		m.AddTask(te)
+		m.SendWork()
 	}
 
-	t := task.Task{
-		Id:    uuid.New(),
-		Name:  "test-container",
-		State: task.Scheduled,
-		Image: "strm/helloworld-http",
+	go func() {
+		for {
+			log.Printf("[Manager] Updating tasks from %d workers\n", len(m.Workers))
+			m.UpdateTasks()
+			time.Sleep(15 * time.Second)
+		}
+	}()
+
+	for {
+		for _, t := range m.TaskDb {
+			log.Printf("[Manager] Task: id: %s, state: %d\n", t.Id, t.State)
+			time.Sleep(15 * time.Second)
+		}
 	}
 
-	fmt.Println("starting task")
-	w.AddTask(&t)
-	result := w.RunNextTask()
-	if result.Error != nil {
-		panic(result.Error)
+}
+
+func runTasks(w *worker.Worker) {
+	for {
+		if w.Queue.Len() != 0 {
+			result := w.RunNextTask()
+			if result.Error != nil {
+				log.Printf("Error running task: %v\n", result.Error)
+			}
+		} else {
+			log.Printf("No tasks to process currently.\n")
+		}
+		log.Println("Sleeping for 10 seconds.")
+		time.Sleep(10 * time.Second)
 	}
 
-	fmt.Printf("task %v is running in container %s\n", t.Id, result.ContainerId)
-	time.Sleep(time.Second * 10)
-
-	fmt.Print("stopping task")
-	t.State = task.Completed
-	w.AddTask(&t)
-	result = w.RunNextTask()
-	if result.Error != nil {
-		panic(result.Error)
-	}
 }
