@@ -40,6 +40,14 @@ func New(workers []string) *Manager {
 	}
 }
 
+func (m *Manager) GetTasks() []*task.Task {
+	result := make([]*task.Task, 0, len(m.TaskDb))
+	for _, t := range m.TaskDb {
+		result = append(result, t)
+	}
+	return result
+}
+
 func (m *Manager) AddTask(tEvent task.TaskEvent) {
 	m.Pending.Enqueue(tEvent)
 }
