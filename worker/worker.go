@@ -61,7 +61,7 @@ func (w *Worker) StartTask(t *task.Task) task.DockerResult {
 
 	result := d.Run()
 	if result.Error != nil {
-		log.Printf("Error running task %v: %v\n", t.Id, result.Error)
+		log.Printf("error running task %v: %v", t.Id, result.Error)
 		t.State = task.Failed
 		w.Db[t.Id] = t
 		return result
@@ -80,14 +80,14 @@ func (w *Worker) StopTask(t *task.Task) task.DockerResult {
 
 	result := d.Stop(t.ContainerId)
 	if result.Error != nil {
-		log.Printf("Error stopping container %s: %v", t.ContainerId, result.Error)
+		log.Printf("error stopping container %s: %v", t.ContainerId, result.Error)
 		return result
 	}
 
 	t.FinishTime = time.Now().UTC()
 	t.State = task.Completed
 	w.Db[t.Id] = t
-	log.Printf("Stopped and removed container %s for task %v\n", t.ContainerId, t.Id)
+	log.Printf("stopped and removed container %s for task %v", t.ContainerId, t.Id)
 	return result
 }
 
@@ -107,7 +107,7 @@ func (w *Worker) InspectTask(t *task.Task) task.DockerInspectReponse {
 func (w *Worker) runNextTask() task.DockerResult {
 	t := w.Queue.Dequeue()
 	if t == nil {
-		log.Println("No task in queue")
+		log.Print("no task in queue")
 		return task.DockerResult{}
 	}
 

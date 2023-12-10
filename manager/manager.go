@@ -91,7 +91,7 @@ func (m *Manager) SendWork() {
 		e := worker.ErrResponse{}
 		err = decoder.Decode(&e)
 		if err != nil {
-			log.Println("failed to decode error message")
+			log.Print("failed to decode error message")
 			return
 		}
 		log.Printf("received an unexpected response code (%d) from worker %s: %v", response.StatusCode, w, e.Message)

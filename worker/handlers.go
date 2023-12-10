@@ -23,7 +23,7 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 	err := data.Decode(&tEvent)
 	if err != nil {
 		errMessage := fmt.Sprintf("error unmarshalling request body: %v", err)
-		log.Println(errMessage)
+		log.Print(errMessage)
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrResponse{
 			Message:        errMessage,
@@ -33,7 +33,7 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.Worker.AddTask(&tEvent.Task)
-	log.Printf("added task %v\n", tEvent.Task.Id)
+	log.Printf("added task %v", tEvent.Task.Id)
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(tEvent.Task)
 }
@@ -41,21 +41,21 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 func (a *Api) StopTaskHandler(w http.ResponseWriter, r *http.Request) {
 	taskId := chi.URLParam(r, "taskId")
 	if taskId == "" {
-		log.Println("taskId parameter is missing")
+		log.Print("taskId parameter is missing")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	taskUuid, err := uuid.Parse(taskId)
 	if err != nil {
-		log.Println("taskId parameter isn't a valid uuid")
+		log.Printf("taskId parameter isn't a valid uuid: %s", taskId)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	t, found := a.Worker.Db[taskUuid]
 	if !found {
-		log.Printf("couldn't find a task with id %v\n", taskUuid)
+		log.Printf("couldn't find a task with id %v", taskUuid)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}

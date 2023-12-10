@@ -98,7 +98,7 @@ func (d *Docker) Run() DockerResult {
 	ctx := context.Background()
 	reader, err := d.Client.ImagePull(ctx, d.Config.Image, types.ImagePullOptions{})
 	if err != nil {
-		log.Printf("Error pulling image %s: %v", d.Config.Image, err)
+		log.Printf("error pulling image %s: %v", d.Config.Image, err)
 		return DockerResult{Error: err}
 	}
 	io.Copy(os.Stdout, reader) // Display pull result
@@ -114,20 +114,20 @@ func (d *Docker) Run() DockerResult {
 	}
 	response, err := d.Client.ContainerCreate(ctx, &containerConfig, &hostConfig, nil, nil, d.Config.Name)
 	if err != nil {
-		log.Printf("Error creating container with image %s: %v", d.Config.Image, err)
+		log.Printf("error creating container with image %s: %v", d.Config.Image, err)
 		return DockerResult{Error: err}
 	}
 
 	err = d.Client.ContainerStart(ctx, response.ID, types.ContainerStartOptions{})
 	if err != nil {
-		log.Printf("Error starting container %s: %v", response.ID, err)
+		log.Printf("error starting container %s: %v", response.ID, err)
 		return DockerResult{Error: err}
 	}
 
 	d.Config.ContainerId = response.ID
 	out, err := d.Client.ContainerLogs(ctx, response.ID, types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
-		log.Printf("Error getting logs for container %s: %v", response.ID, err)
+		log.Printf("error getting logs for container %s: %v", response.ID, err)
 	}
 	stdcopy.StdCopy(os.Stdout, os.Stderr, out)
 
@@ -142,12 +142,12 @@ func (d *Docker) Stop(containerId string) DockerResult {
 	log.Printf("attempting to stop container %s", containerId)
 	ctx := context.Background()
 	if err := d.Client.ContainerStop(ctx, containerId, container.StopOptions{}); err != nil {
-		log.Println(err)
+		log.Print(err)
 		panic(err)
 	}
 
 	if err := d.Client.ContainerRemove(ctx, containerId, types.ContainerRemoveOptions{}); err != nil {
-		log.Println(err)
+		log.Print(err)
 		panic(err)
 	}
 
