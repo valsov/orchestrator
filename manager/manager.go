@@ -3,11 +3,14 @@ package manager
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 
@@ -125,6 +128,15 @@ func (m *Manager) ProcessTasks() {
 	}
 }
 
+func (m *Manager) CheckTasksHealth() {
+	for {
+		log.Print("checking tasks health")
+		m.checkTasksHealth()
+		log.Print("tasks health check completed")
+		time.Sleep(10 * time.Second)
+	}
+}
+
 func (m *Manager) UpdateTasks() {
 	for {
 		log.Print("checking for workers' tasks update")
@@ -174,4 +186,93 @@ func (m *Manager) updateTask(t *task.Task) {
 	dbTask.FinishTime = t.FinishTime
 	dbTask.ContainerId = t.ContainerId
 	log.Printf("task %s updated in local database", t.Id)
+}
+
+func (m *Manager) checkTasksHealth() {
+	for _, t := range m.TaskDb {
+		if t.RestartCount >= 3 {
+			continue
+		}
+
+		if t.State == task.Running {
+			err := m.checkTaskHealth(*t)
+			if err != nil {
+				m.restartTask(t)
+			}
+		} else if t.State == task.Failed {
+			m.restartTask(t)
+		}
+	}
+}
+
+func (m *Manager) checkTaskHealth(t task.Task) error {
+	workerAddr := m.TaskWorkerMap[t.Id]
+	workerHost := strings.Split(workerAddr, ":")
+	hostPort, err := getHostPort(t.PortBindings)
+	if err != nil {
+		return err
+	}
+	url := fmt.Sprintf("http://%s:%s", workerHost[0], hostPort)
+	response, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("health check call returned unexpected status code: %d (%s)", response.StatusCode, response.Status)
+	}
+
+	return nil
+}
+
+func (m *Manager) restartTask(t *task.Task) {
+	workerAddr := m.TaskWorkerMap[t.Id]
+	t.State = task.Scheduled
+	t.RestartCount++
+	m.TaskDb[t.Id] = t // Ensure the task state is updated
+
+	tEvent := task.TaskEvent{
+		Id:        uuid.New(),
+		State:     task.Running,
+		Timestamp: time.Now(),
+		Task:      *t,
+	}
+	data, err := json.Marshal(tEvent)
+	if err != nil {
+		log.Printf("unable to marshal task object: %v", tEvent)
+		return
+	}
+
+	url := fmt.Sprintf("http://%s/tasks", workerAddr)
+	response, err := http.Post(url, "application/json", bytes.NewBuffer(data))
+	if err != nil {
+		log.Printf("error connecting to %s: %v", workerAddr, err)
+		return
+	}
+
+	d := json.NewDecoder(response.Body)
+	if response.StatusCode != http.StatusCreated {
+		e := worker.ErrResponse{}
+		err := d.Decode(&e)
+		if err != nil {
+			log.Printf("error decoding error response: %v", err)
+			return
+		}
+		log.Printf("response error [%d]: %s", e.HTTPStatusCode, e.Message)
+		return
+	}
+
+	newTask := task.Task{}
+	err = d.Decode(&newTask)
+	if err != nil {
+		log.Printf("error decoding response: %v", err)
+		return
+	}
+	log.Printf("%#v", newTask)
+}
+
+func getHostPort(pb nat.PortMap) (string, error) {
+	for port := range pb {
+		return pb[port][0].HostPort, nil
+	}
+	return "", errors.New("port map is empty")
 }

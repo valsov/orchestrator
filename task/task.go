@@ -25,10 +25,12 @@ type Task struct {
 	Memory        int64
 	Disk          int64
 	ExposedPorts  nat.PortSet
-	PortBindings  map[string]string
+	PortBindings  nat.PortMap
 	RestartPolicy string
 	StartTime     time.Time
 	FinishTime    time.Time
+	HealthCheck   string
+	RestartCount  int
 }
 
 type TaskEvent struct {
@@ -64,6 +66,11 @@ func NewConfig(t *Task) *Config {
 		Disk:          t.Disk,
 		RestartPolicy: t.RestartPolicy,
 	}
+}
+
+type DockerInspectReponse struct {
+	Container *types.ContainerJSON
+	Error     error
 }
 
 type Docker struct {
@@ -145,4 +152,14 @@ func (d *Docker) Stop(containerId string) DockerResult {
 	}
 
 	return DockerResult{Action: "stop", Result: "success", ContainerId: containerId}
+}
+
+func (d *Docker) Inspect(containerId string) DockerInspectReponse {
+	ctx := context.Background()
+	response, err := d.Client.ContainerInspect(ctx, containerId)
+	if err != nil {
+		log.Printf("error inspecting container: %s", containerId)
+		return DockerInspectReponse{Error: err}
+	}
+	return DockerInspectReponse{Container: &response}
 }

@@ -31,6 +31,7 @@ func startWorker() (*worker.Api, string) {
 	api := worker.Api{Address: host, Port: port, Worker: &w}
 	go w.RunTasks()
 	go w.CollectStats()
+	go w.UpdateTasks()
 
 	return &api, fmt.Sprintf("%s:%d", host, port)
 }
@@ -43,6 +44,7 @@ func startManager(workerApiAddr string) *manager.Api {
 	m := manager.New(workers)
 	go m.ProcessTasks()
 	go m.UpdateTasks()
+	go m.CheckTasksHealth()
 
 	return &manager.Api{Address: host, Port: port, Manager: m}
 }

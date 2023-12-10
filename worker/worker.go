@@ -45,6 +45,15 @@ func (w *Worker) RunTasks() {
 	}
 }
 
+func (w *Worker) UpdateTasks() {
+	for {
+		log.Print("checking tasks status")
+		w.updateTasks()
+		log.Print("tasks status check completed")
+		time.Sleep(10 * time.Second)
+	}
+}
+
 func (w *Worker) StartTask(t *task.Task) task.DockerResult {
 	t.StartTime = time.Now().UTC()
 	config := task.NewConfig(t)
@@ -89,6 +98,12 @@ func (w *Worker) CollectStats() {
 	}
 }
 
+func (w *Worker) InspectTask(t *task.Task) task.DockerInspectReponse {
+	config := task.NewConfig(t)
+	d := task.NewDocker(config)
+	return d.Inspect(t.ContainerId)
+}
+
 func (w *Worker) runNextTask() task.DockerResult {
 	t := w.Queue.Dequeue()
 	if t == nil {
@@ -119,4 +134,25 @@ func (w *Worker) runNextTask() task.DockerResult {
 	}
 
 	return result
+}
+
+func (w *Worker) updateTasks() {
+	for _, t := range w.Db {
+		if t.State != task.Running {
+			continue
+		}
+
+		inspectRes := w.InspectTask(t)
+		if inspectRes.Error != nil {
+			log.Printf("task inspection error [%v]: %v", t.Id, inspectRes.Error)
+		} else if inspectRes.Container == nil {
+			log.Printf("no container for running task [%v]", t.Id)
+			t.State = task.Failed
+		} else if inspectRes.Container.State.Status == "exited" {
+			log.Printf("container exited for running task [%v]", t.Id)
+			t.State = task.Failed
+		} else {
+			t.PortBindings = inspectRes.Container.NetworkSettings.NetworkSettingsBase.Ports
+		}
+	}
 }
