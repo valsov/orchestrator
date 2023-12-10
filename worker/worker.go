@@ -31,36 +31,18 @@ func (w *Worker) AddTask(t *task.Task) {
 	w.Queue.Enqueue(t)
 }
 
-func (w *Worker) RunNextTask() task.DockerResult {
-	t := w.Queue.Dequeue()
-	if t == nil {
-		log.Println("No task in queue")
-		return task.DockerResult{}
-	}
-
-	queuedTask := t.(*task.Task)
-
-	storedTask := w.Db[queuedTask.Id]
-	if storedTask == nil {
-		storedTask = queuedTask
-		w.Db[storedTask.Id] = storedTask
-	}
-
-	var result task.DockerResult
-	if task.ValidStateTransition(storedTask.State, queuedTask.State) {
-		switch queuedTask.State {
-		case task.Scheduled:
-			result = w.StartTask(queuedTask)
-		case task.Completed:
-			result = w.StopTask(queuedTask)
-		default:
-			result.Error = fmt.Errorf("running a task shouldn't be represented with a %v state", queuedTask.State)
+func (w *Worker) RunTasks() {
+	for {
+		if w.Queue.Len() == 0 {
+			log.Print("no tasks to run")
+		} else {
+			result := w.runNextTask()
+			if result.Error != nil {
+				log.Printf("error processing task: %v", result.Error)
+			}
 		}
-	} else {
-		result.Error = fmt.Errorf("invalid state transition from %v to %v", storedTask.State, queuedTask.State)
+		time.Sleep(10 * time.Second)
 	}
-
-	return result
 }
 
 func (w *Worker) StartTask(t *task.Task) task.DockerResult {
@@ -105,4 +87,36 @@ func (w *Worker) CollectStats() {
 		w.Stats = GetStats()
 		time.Sleep(10 * time.Second)
 	}
+}
+
+func (w *Worker) runNextTask() task.DockerResult {
+	t := w.Queue.Dequeue()
+	if t == nil {
+		log.Println("No task in queue")
+		return task.DockerResult{}
+	}
+
+	queuedTask := t.(*task.Task)
+
+	storedTask := w.Db[queuedTask.Id]
+	if storedTask == nil {
+		storedTask = queuedTask
+		w.Db[storedTask.Id] = storedTask
+	}
+
+	var result task.DockerResult
+	if task.ValidStateTransition(storedTask.State, queuedTask.State) {
+		switch queuedTask.State {
+		case task.Scheduled:
+			result = w.StartTask(queuedTask)
+		case task.Completed:
+			result = w.StopTask(queuedTask)
+		default:
+			result.Error = fmt.Errorf("running a task shouldn't be represented with a %v state", queuedTask.State)
+		}
+	} else {
+		result.Error = fmt.Errorf("invalid state transition from %v to %v", storedTask.State, queuedTask.State)
+	}
+
+	return result
 }

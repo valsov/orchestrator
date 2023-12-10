@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
@@ -117,7 +118,25 @@ func (m *Manager) SelectWorker() string {
 	return m.Workers[newWorker]
 }
 
+func (m *Manager) ProcessTasks() {
+	for {
+		log.Print("starting queued tasks processing")
+		m.SendWork()
+		log.Print("queued tasks processing completed")
+		time.Sleep(10 * time.Second)
+	}
+}
+
 func (m *Manager) UpdateTasks() {
+	for {
+		log.Print("checking for workers' tasks update")
+		m.updateTasks()
+		log.Print("tasks update completed")
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (m *Manager) updateTasks() {
 	for _, worker := range m.Workers {
 		log.Printf("checking worker %s for task updates", worker)
 		url := fmt.Sprintf("http://%s/tasks", worker)
@@ -140,12 +159,12 @@ func (m *Manager) UpdateTasks() {
 		}
 
 		for _, t := range tasks {
-			m.UpdateTask(t)
+			m.updateTask(t)
 		}
 	}
 }
 
-func (m *Manager) UpdateTask(t *task.Task) {
+func (m *Manager) updateTask(t *task.Task) {
 	dbTask, found := m.TaskDb[t.Id]
 	if !found {
 		log.Printf("task %s not found in local database", t.Id)

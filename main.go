@@ -2,82 +2,47 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"orchestrator/manager"
 	"orchestrator/task"
 	"orchestrator/worker"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 )
 
 func main() {
-	host := os.Getenv("CUBE_HOST")
-	port, _ := strconv.Atoi(os.Getenv("CUBE_PORT"))
+	workerApi, workerApiAddr := startWorker()
+	managerApi := startManager(workerApiAddr)
 
-	log.Println("Starting Cube worker")
+	go workerApi.StartRouter()
+	managerApi.StartRouter()
+}
+
+func startWorker() (*worker.Api, string) {
+	host := os.Getenv("WORKER_HOST")
+	port, _ := strconv.Atoi(os.Getenv("WORKER_PORT"))
 
 	w := worker.Worker{
 		Queue: *queue.New(),
 		Db:    make(map[uuid.UUID]*task.Task),
 	}
 	api := worker.Api{Address: host, Port: port, Worker: &w}
-
-	go runTasks(&w)
+	go w.RunTasks()
 	go w.CollectStats()
-	go api.StartRouter()
 
-	workers := []string{fmt.Sprintf("%s:%d", host, port)}
-	m := manager.New(workers)
-
-	for i := 0; i < 3; i++ {
-		t := task.Task{
-			Id:    uuid.New(),
-			Name:  fmt.Sprintf("test-container-%d", i),
-			State: task.Scheduled,
-			Image: "strm/helloworld-http",
-		}
-		te := task.TaskEvent{
-			Id:    uuid.New(),
-			State: task.Running,
-			Task:  t,
-		}
-		m.AddTask(te)
-		m.SendWork()
-	}
-
-	go func() {
-		for {
-			log.Printf("[Manager] Updating tasks from %d workers\n", len(m.Workers))
-			m.UpdateTasks()
-			time.Sleep(15 * time.Second)
-		}
-	}()
-
-	for {
-		for _, t := range m.TaskDb {
-			log.Printf("[Manager] Task: id: %s, state: %d\n", t.Id, t.State)
-			time.Sleep(15 * time.Second)
-		}
-	}
-
+	return &api, fmt.Sprintf("%s:%d", host, port)
 }
 
-func runTasks(w *worker.Worker) {
-	for {
-		if w.Queue.Len() != 0 {
-			result := w.RunNextTask()
-			if result.Error != nil {
-				log.Printf("Error running task: %v\n", result.Error)
-			}
-		} else {
-			log.Printf("No tasks to process currently.\n")
-		}
-		log.Println("Sleeping for 10 seconds.")
-		time.Sleep(10 * time.Second)
-	}
+func startManager(workerApiAddr string) *manager.Api {
+	host := os.Getenv("MANAGER_HOST")
+	port, _ := strconv.Atoi(os.Getenv("MANAGER_PORT"))
 
+	workers := []string{workerApiAddr}
+	m := manager.New(workers)
+	go m.ProcessTasks()
+	go m.UpdateTasks()
+
+	return &manager.Api{Address: host, Port: port, Manager: m}
 }
