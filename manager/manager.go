@@ -66,8 +66,6 @@ func (m *Manager) SendWork() {
 	m.EventDb[tEvent.Id] = &tEvent
 	m.WorkerTaskMap[w] = append(m.WorkerTaskMap[w], tEvent.Task.Id)
 	m.TaskWorkerMap[tEvent.Task.Id] = w
-
-	tEvent.Task.State = task.Scheduled
 	m.TaskDb[tEvent.Task.Id] = &tEvent.Task
 
 	jsonTaskEvent, err := json.Marshal(tEvent)
