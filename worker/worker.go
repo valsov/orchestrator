@@ -123,6 +123,14 @@ func (w *Worker) runNextTask() task.DockerResult {
 	if task.ValidStateTransition(storedTask.State, queuedTask.State) {
 		switch queuedTask.State {
 		case task.Scheduled:
+			if queuedTask.ContainerId != "" {
+				// Case of a restart when the container is still running
+				result = w.StopTask(queuedTask)
+				if result.Error != nil {
+					log.Printf("failed to stop task %v: %v", queuedTask.Id, result.Error)
+					return result
+				}
+			}
 			result = w.StartTask(queuedTask)
 		case task.Completed:
 			result = w.StopTask(queuedTask)
@@ -152,7 +160,11 @@ func (w *Worker) updateTasks() {
 			log.Printf("container exited for running task [%v]", t.Id)
 			t.State = task.Failed
 		} else {
-			t.PortBindings = inspectRes.Container.NetworkSettings.NetworkSettingsBase.Ports
+			for port, binds := range inspectRes.Container.NetworkSettings.NetworkSettingsBase.Ports {
+				if len(binds) != 0 {
+					t.PortBindings[string(port)] = binds[0].HostPort
+				}
+			}
 		}
 	}
 }

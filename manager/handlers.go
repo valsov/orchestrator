@@ -34,7 +34,7 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.Manager.AddTask(tEvent)
-	log.Printf("added task %v", tEvent.Task.Id)
+	log.Printf("[m] added task %v", tEvent.Task.Id)
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(tEvent.Task)
 }

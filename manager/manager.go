@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 
@@ -197,6 +196,7 @@ func (m *Manager) checkTasksHealth() {
 		if t.State == task.Running {
 			err := m.checkTaskHealth(*t)
 			if err != nil {
+				log.Printf("health check failed for %v: %v", t.Id, err)
 				m.restartTask(t)
 			}
 		} else if t.State == task.Failed {
@@ -212,7 +212,7 @@ func (m *Manager) checkTaskHealth(t task.Task) error {
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("http://%s:%s", workerHost[0], hostPort)
+	url := fmt.Sprintf("http://%s:%s%s", workerHost[0], hostPort, t.HealthCheck)
 	response, err := http.Get(url)
 	if err != nil {
 		return err
@@ -221,6 +221,7 @@ func (m *Manager) checkTaskHealth(t task.Task) error {
 		return fmt.Errorf("health check call returned unexpected status code: %d (%s)", response.StatusCode, response.Status)
 	}
 
+	log.Printf("task %v is healthy", t.Id)
 	return nil
 }
 
@@ -270,9 +271,9 @@ func (m *Manager) restartTask(t *task.Task) {
 	log.Printf("%#v", newTask)
 }
 
-func getHostPort(pb nat.PortMap) (string, error) {
-	for port := range pb {
-		return pb[port][0].HostPort, nil
+func getHostPort(pb map[string]string) (string, error) {
+	for _, port := range pb {
+		return port, nil
 	}
 	return "", errors.New("port map is empty")
 }

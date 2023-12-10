@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log"
+	"math"
 	"os"
 	"time"
 
@@ -25,7 +26,7 @@ type Task struct {
 	Memory        int64
 	Disk          int64
 	ExposedPorts  nat.PortSet
-	PortBindings  nat.PortMap
+	PortBindings  map[string]string
 	RestartPolicy string
 	StartTime     time.Time
 	FinishTime    time.Time
@@ -54,12 +55,14 @@ type Config struct {
 	Env           []string
 	RestartPolicy string
 	ExposedPorts  nat.PortSet
+	PortBindings  map[string]string
 }
 
 func NewConfig(t *Task) *Config {
 	return &Config{
 		Name:          t.Name,
 		ExposedPorts:  t.ExposedPorts,
+		PortBindings:  t.PortBindings,
 		Image:         t.Image,
 		Cpu:           t.Cpu,
 		Memory:        t.Memory,
@@ -104,13 +107,17 @@ func (d *Docker) Run() DockerResult {
 	io.Copy(os.Stdout, reader) // Display pull result
 
 	containerConfig := container.Config{
-		Image: d.Config.Image,
-		Env:   d.Config.Env,
+		Image:        d.Config.Image,
+		Env:          d.Config.Env,
+		ExposedPorts: d.Config.ExposedPorts,
 	}
 	hostConfig := container.HostConfig{
-		RestartPolicy:   container.RestartPolicy{Name: d.Config.RestartPolicy},
-		Resources:       container.Resources{Memory: d.Config.Memory},
-		PublishAllPorts: true,
+		RestartPolicy: container.RestartPolicy{Name: d.Config.RestartPolicy},
+		Resources: container.Resources{
+			Memory:   d.Config.Memory,
+			NanoCPUs: int64(d.Config.Cpu * math.Pow(10, 9)),
+		},
+		PortBindings: createPortMap(d.Config.PortBindings),
 	}
 	response, err := d.Client.ContainerCreate(ctx, &containerConfig, &hostConfig, nil, nil, d.Config.Name)
 	if err != nil {
@@ -162,4 +169,14 @@ func (d *Docker) Inspect(containerId string) DockerInspectReponse {
 		return DockerInspectReponse{Error: err}
 	}
 	return DockerInspectReponse{Container: &response}
+}
+
+func createPortMap(m map[string]string) nat.PortMap {
+	pm := make(nat.PortMap, len(m))
+	for portStr, boundPort := range m {
+		port := nat.Port(portStr)
+		pBinding := nat.PortBinding{HostIP: "127.0.0.1", HostPort: boundPort}
+		pm[port] = []nat.PortBinding{pBinding}
+	}
+	return pm
 }
