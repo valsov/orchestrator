@@ -13,6 +13,8 @@ import (
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 
+	"orchestrator/node"
+	"orchestrator/scheduler"
 	"orchestrator/task"
 	"orchestrator/worker"
 )
@@ -22,25 +24,41 @@ type Manager struct {
 	TaskDb        map[uuid.UUID]*task.Task
 	EventDb       map[uuid.UUID]*task.TaskEvent
 	Workers       []string
+	WorkerNodes   []*node.Node
 	WorkerTaskMap map[string][]uuid.UUID
 	TaskWorkerMap map[uuid.UUID]string
-	LastWorker    int // Temporary solution to the scheduling need
+	Scheduler     scheduler.Scheduler
 }
 
-func New(workers []string) *Manager {
+func New(workers []string, schedulerType string) (*Manager, error) {
 	workerTaskMap := make(map[string][]uuid.UUID)
-	for worker := range workers {
-		workerTaskMap[workers[worker]] = []uuid.UUID{}
+	nodes := make([]*node.Node, len(workers))
+	for _, worker := range workers {
+		workerTaskMap[worker] = []uuid.UUID{}
+
+		nodeApi := fmt.Sprintf("http://%s", worker)
+		newNode := node.NewNode(worker, nodeApi, "worker")
+		nodes = append(nodes, &newNode)
+	}
+
+	var sched scheduler.Scheduler
+	switch schedulerType {
+	case "roundrobin":
+		sched = &scheduler.RoundRobin{}
+	default:
+		return nil, fmt.Errorf("unsupported scheduler type: %s", schedulerType)
 	}
 
 	return &Manager{
 		Pending:       *queue.New(),
 		Workers:       workers,
+		WorkerNodes:   nodes,
 		TaskDb:        make(map[uuid.UUID]*task.Task),
 		EventDb:       make(map[uuid.UUID]*task.TaskEvent),
 		WorkerTaskMap: workerTaskMap,
 		TaskWorkerMap: make(map[uuid.UUID]string),
-	}
+		Scheduler:     sched,
+	}, nil
 }
 
 func (m *Manager) GetTasks() []*task.Task {
@@ -60,14 +78,19 @@ func (m *Manager) SendWork() {
 		return
 	}
 
-	w := m.SelectWorker()
 	dequeued := m.Pending.Dequeue()
 	tEvent := dequeued.(task.TaskEvent)
 	log.Printf("starting task processing: %v", tEvent.Task)
 
+	wNode, err := m.selectWorker(tEvent.Task)
+	if err != nil {
+		log.Printf("failed to select a worker to execute task %v", tEvent.Task.Id)
+		return
+	}
+
 	m.EventDb[tEvent.Id] = &tEvent
-	m.WorkerTaskMap[w] = append(m.WorkerTaskMap[w], tEvent.Task.Id)
-	m.TaskWorkerMap[tEvent.Task.Id] = w
+	m.WorkerTaskMap[wNode.Name] = append(m.WorkerTaskMap[wNode.Name], tEvent.Task.Id)
+	m.TaskWorkerMap[tEvent.Task.Id] = wNode.Name
 	m.TaskDb[tEvent.Task.Id] = &tEvent.Task
 
 	jsonTaskEvent, err := json.Marshal(tEvent)
@@ -76,10 +99,10 @@ func (m *Manager) SendWork() {
 		return
 	}
 
-	url := fmt.Sprintf("http://%s/tasks", w)
+	url := fmt.Sprintf("http://%s/tasks", wNode.Name)
 	response, err := http.Post(url, "application/json", bytes.NewBuffer(jsonTaskEvent))
 	if err != nil {
-		log.Printf("failed to send post request to %s", w)
+		log.Printf("failed to send post request to %s", wNode.Name)
 		m.Pending.Enqueue(tEvent) // Try again
 		return
 	}
@@ -93,7 +116,7 @@ func (m *Manager) SendWork() {
 			log.Print("failed to decode error message")
 			return
 		}
-		log.Printf("received an unexpected response code (%d) from worker %s: %v", response.StatusCode, w, e.Message)
+		log.Printf("received an unexpected response code (%d) from worker %s: %v", response.StatusCode, wNode.Name, e.Message)
 		return
 	}
 
@@ -104,18 +127,6 @@ func (m *Manager) SendWork() {
 	} else {
 		log.Printf("%#v", t)
 	}
-}
-
-func (m *Manager) SelectWorker() string {
-	var newWorker int
-	if m.LastWorker == len(m.Workers)-1 {
-		newWorker = 0
-	} else {
-		newWorker = m.LastWorker + 1
-	}
-	m.LastWorker = newWorker
-
-	return m.Workers[newWorker]
 }
 
 func (m *Manager) ProcessTasks() {
@@ -276,4 +287,13 @@ func getHostPort(pb map[string]string) (string, error) {
 		return port, nil
 	}
 	return "", errors.New("port map is empty")
+}
+
+func (m *Manager) selectWorker(t task.Task) (*node.Node, error) {
+	candidates := m.Scheduler.SelectCandidateNodes(t, m.WorkerNodes)
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no available candidates match resource request for task %v", t.Id)
+	}
+	scores := m.Scheduler.Score(t, candidates)
+	return m.Scheduler.Pick(scores, candidates), nil
 }

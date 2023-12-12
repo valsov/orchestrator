@@ -41,7 +41,7 @@ func startManager(workerApiAddr string) *manager.Api {
 	port, _ := strconv.Atoi(os.Getenv("MANAGER_PORT"))
 
 	workers := []string{workerApiAddr}
-	m := manager.New(workers)
+	m, _ := manager.New(workers, "roundrobin")
 	go m.ProcessTasks()
 	go m.UpdateTasks()
 	go m.CheckTasksHealth()

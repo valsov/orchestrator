@@ -6,7 +6,6 @@ import (
 )
 
 type RoundRobin struct {
-	Name       string
 	LastWorker int
 }
 
