@@ -80,7 +80,23 @@ func (m *Manager) SendWork() {
 
 	dequeued := m.Pending.Dequeue()
 	tEvent := dequeued.(task.TaskEvent)
+	m.EventDb[tEvent.Id] = &tEvent
 	log.Printf("starting task processing: %v", tEvent.Task)
+
+	taskWorker, found := m.TaskWorkerMap[tEvent.Id]
+	if found {
+		persistedTask := m.TaskDb[tEvent.Task.Id]
+		if tEvent.State != task.Completed {
+			log.Printf("invalid request: existing task %v cannot transition to state %v", persistedTask.Id, tEvent.State)
+			return
+		}
+		if task.ValidStateTransition(persistedTask.State, tEvent.State) {
+			m.stopTask(tEvent.Task.Id, taskWorker)
+		} else {
+			log.Printf("invalid request: existing task %v in state %v cannot transition to the completed state", persistedTask.Id, persistedTask.State)
+		}
+		return
+	}
 
 	wNode, err := m.selectWorker(tEvent.Task)
 	if err != nil {
@@ -88,7 +104,6 @@ func (m *Manager) SendWork() {
 		return
 	}
 
-	m.EventDb[tEvent.Id] = &tEvent
 	m.WorkerTaskMap[wNode.Name] = append(m.WorkerTaskMap[wNode.Name], tEvent.Task.Id)
 	m.TaskWorkerMap[tEvent.Task.Id] = wNode.Name
 	m.TaskDb[tEvent.Task.Id] = &tEvent.Task
@@ -165,6 +180,7 @@ func (m *Manager) updateTasks() {
 			log.Printf("failed to send get request to %s: %v", worker, err)
 			continue
 		}
+		defer response.Body.Close()
 		if response.StatusCode != http.StatusOK {
 			log.Printf("received an unexpected response code (%d) from worker %s", response.StatusCode, worker)
 			continue
@@ -182,6 +198,29 @@ func (m *Manager) updateTasks() {
 			m.updateTask(t)
 		}
 	}
+}
+
+func (m *Manager) stopTask(taskId uuid.UUID, worker string) {
+	url := fmt.Sprintf("http://%s/tasks/%v", worker, taskId)
+	request, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		log.Printf("error creating task deletion request: %v", err)
+		return
+	}
+
+	client := http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		log.Printf("task deletion request sending failed: %v", err)
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		log.Printf("received an unexpected response code (%d) from worker %s", response.StatusCode, worker)
+		return
+	}
+
+	log.Printf("task %s has been scheduled to stop", taskId)
 }
 
 func (m *Manager) updateTask(t *task.Task) {
@@ -228,6 +267,7 @@ func (m *Manager) checkTaskHealth(t task.Task) error {
 	if err != nil {
 		return err
 	}
+	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check call returned unexpected status code: %d (%s)", response.StatusCode, response.Status)
 	}
@@ -260,6 +300,7 @@ func (m *Manager) restartTask(t *task.Task) {
 		log.Printf("error connecting to %s: %v", workerAddr, err)
 		return
 	}
+	defer response.Body.Close()
 
 	d := json.NewDecoder(response.Body)
 	if response.StatusCode != http.StatusCreated {
