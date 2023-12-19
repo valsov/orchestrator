@@ -8,6 +8,7 @@ import (
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 
+	"orchestrator/stats"
 	"orchestrator/task"
 )
 
@@ -15,8 +16,7 @@ type Worker struct {
 	Name  string
 	Queue queue.Queue
 	Db    map[uuid.UUID]*task.Task
-	//TaskCount int
-	Stats *Stats
+	Stats *stats.Stats
 }
 
 func (w *Worker) GetTasks() []*task.Task {
@@ -93,7 +93,7 @@ func (w *Worker) StopTask(t *task.Task) task.DockerResult {
 
 func (w *Worker) CollectStats() {
 	for {
-		w.Stats = GetStats()
+		w.Stats = stats.GetStats()
 		time.Sleep(10 * time.Second)
 	}
 }

@@ -1,4 +1,4 @@
-package worker
+package stats
 
 import (
 	"log"
@@ -11,7 +11,6 @@ type Stats struct {
 	DiskStats   *linux.Disk
 	CpuStats    *linux.CPUStat
 	LoadStats   *linux.LoadAvg
-	TaskCount   int
 }
 
 func (s *Stats) MemTotalKb() uint64 {
@@ -73,7 +72,7 @@ func GetMemoryInfo() *linux.MemInfo {
 func GetDiskInfo() *linux.Disk {
 	diskstats, err := linux.ReadDisk("/")
 	if err != nil {
-		log.Print("Error reading from /")
+		log.Print("error reading from /")
 		return &linux.Disk{}
 	}
 	return diskstats
@@ -82,7 +81,7 @@ func GetDiskInfo() *linux.Disk {
 func GetCpuStats() *linux.CPUStat {
 	stats, err := linux.ReadStat("/proc/stat")
 	if err != nil {
-		log.Print("Error reading from /proc/stat")
+		log.Print("error reading from /proc/stat")
 		return &linux.CPUStat{}
 	}
 	return &stats.CPUStatAll
@@ -91,7 +90,7 @@ func GetCpuStats() *linux.CPUStat {
 func GetLoadAvg() *linux.LoadAvg {
 	loadavg, err := linux.ReadLoadAvg("/proc/loadavg")
 	if err != nil {
-		log.Print("Error reading from /proc/loadavg")
+		log.Print("error reading from /proc/loadavg")
 		return &linux.LoadAvg{}
 	}
 	return loadavg

@@ -45,6 +45,8 @@ func New(workers []string, schedulerType string) (*Manager, error) {
 	switch schedulerType {
 	case "roundrobin":
 		sched = &scheduler.RoundRobin{}
+	case "epvm":
+		sched = &scheduler.Epvm{}
 	default:
 		return nil, fmt.Errorf("unsupported scheduler type: %s", schedulerType)
 	}
@@ -140,6 +142,7 @@ func (m *Manager) SendWork() {
 	if err != nil {
 		log.Printf("error decoding task reponse: %v", err)
 	} else {
+		wNode.TaskCount++
 		log.Printf("%#v", t)
 	}
 }
