@@ -54,20 +54,19 @@ func (a *Api) StopTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t, found := a.Manager.TaskDb[taskUuid]
-	if !found {
-		log.Printf("couldn't find a task with id %v", taskUuid)
+	t, err := a.Manager.TaskDb.Get(taskUuid)
+	if err != nil {
+		log.Printf("failed to retrieve task with id %v, err: %v", taskUuid, err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
-	tCopy := *t // Dereference task to change state without impacting the task stored in DB
-	tCopy.State = task.Completed
+	t.State = task.Completed
 	tEvent := task.TaskEvent{
 		Id:        uuid.New(),
 		State:     task.Completed,
 		Timestamp: time.Now().UTC(),
-		Task:      tCopy,
+		Task:      t,
 	}
 	a.Manager.AddTask(tEvent)
 

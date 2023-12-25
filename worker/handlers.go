@@ -32,7 +32,7 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.Worker.AddTask(&tEvent.Task)
+	a.Worker.AddTask(tEvent.Task)
 	log.Printf("[w] added task %v", tEvent.Task.Id)
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(tEvent.Task)
@@ -53,16 +53,15 @@ func (a *Api) StopTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t, found := a.Worker.Db[taskUuid]
-	if !found {
-		log.Printf("couldn't find a task with id %v", taskUuid)
+	t, err := a.Worker.Db.Get(taskUuid)
+	if err != nil {
+		log.Printf("failed to retrieve task with id %v from store, err: %v", taskUuid, err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
-	tCopy := *t // Dereference task to change state without impacting the task stored in DB
-	tCopy.State = task.Completed
-	a.Worker.AddTask(&tCopy) // Submit deletion request
+	t.State = task.Completed
+	a.Worker.AddTask(t) // Submit deletion request
 
 	log.Printf("task %v submitted for deletion, stopping container %s", t.Id, t.ContainerId)
 	w.WriteHeader(http.StatusNoContent)

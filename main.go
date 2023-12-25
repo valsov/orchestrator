@@ -3,13 +3,9 @@ package main
 import (
 	"fmt"
 	"orchestrator/manager"
-	"orchestrator/task"
 	"orchestrator/worker"
 	"os"
 	"strconv"
-
-	"github.com/golang-collections/collections/queue"
-	"github.com/google/uuid"
 )
 
 func main() {
@@ -24,11 +20,8 @@ func startWorker() (*worker.Api, string) {
 	host := os.Getenv("WORKER_HOST")
 	port, _ := strconv.Atoi(os.Getenv("WORKER_PORT"))
 
-	w := worker.Worker{
-		Queue: *queue.New(),
-		Db:    make(map[uuid.UUID]*task.Task),
-	}
-	api := worker.Api{Address: host, Port: port, Worker: &w}
+	w, _ := worker.New("w1", "memory")
+	api := worker.Api{Address: host, Port: port, Worker: w}
 	go w.RunTasks()
 	go w.CollectStats()
 	go w.UpdateTasks()
@@ -41,7 +34,7 @@ func startManager(workerApiAddr string) *manager.Api {
 	port, _ := strconv.Atoi(os.Getenv("MANAGER_PORT"))
 
 	workers := []string{workerApiAddr}
-	m, _ := manager.New(workers, "roundrobin")
+	m, _ := manager.New(workers, "roundrobin", "memory")
 	go m.ProcessTasks()
 	go m.UpdateTasks()
 	go m.CheckTasksHealth()

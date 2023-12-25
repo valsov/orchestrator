@@ -58,8 +58,8 @@ type Config struct {
 	PortBindings  map[string]string
 }
 
-func NewConfig(t *Task) *Config {
-	return &Config{
+func NewConfig(t Task) Config {
+	return Config{
 		Name:          t.Name,
 		ExposedPorts:  t.ExposedPorts,
 		PortBindings:  t.PortBindings,
@@ -82,11 +82,11 @@ type Docker struct {
 	ContainerId string
 }
 
-func NewDocker(c *Config) *Docker {
+func NewDocker(c Config) *Docker {
 	dClient, _ := client.NewClientWithOpts(client.FromEnv)
 	return &Docker{
 		Client: dClient,
-		Config: *c,
+		Config: c,
 	}
 }
 

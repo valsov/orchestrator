@@ -15,14 +15,15 @@ import (
 
 	"orchestrator/node"
 	"orchestrator/scheduler"
+	"orchestrator/store"
 	"orchestrator/task"
 	"orchestrator/worker"
 )
 
 type Manager struct {
-	Pending       queue.Queue
-	TaskDb        map[uuid.UUID]*task.Task
-	EventDb       map[uuid.UUID]*task.TaskEvent
+	Pending       *queue.Queue
+	TaskDb        store.Store[uuid.UUID, task.Task]
+	EventDb       store.Store[uuid.UUID, task.TaskEvent]
 	Workers       []string
 	WorkerNodes   []*node.Node
 	WorkerTaskMap map[string][]uuid.UUID
@@ -30,7 +31,7 @@ type Manager struct {
 	Scheduler     scheduler.Scheduler
 }
 
-func New(workers []string, schedulerType string) (*Manager, error) {
+func New(workers []string, schedulerType string, storeType string) (*Manager, error) {
 	workerTaskMap := make(map[string][]uuid.UUID)
 	nodes := make([]*node.Node, len(workers))
 	for _, worker := range workers {
@@ -51,24 +52,38 @@ func New(workers []string, schedulerType string) (*Manager, error) {
 		return nil, fmt.Errorf("unsupported scheduler type: %s", schedulerType)
 	}
 
+	var taskDb store.Store[uuid.UUID, task.Task]
+	var taskEventDb store.Store[uuid.UUID, task.TaskEvent]
+	switch storeType {
+	case "memory":
+		taskDb = store.NewMemoryStore[uuid.UUID, task.Task]()
+		taskEventDb = store.NewMemoryStore[uuid.UUID, task.TaskEvent]()
+	case "persisted":
+		taskDb = store.NewPersistedStore[uuid.UUID, task.Task]()
+		taskEventDb = store.NewPersistedStore[uuid.UUID, task.TaskEvent]()
+	default:
+		return nil, fmt.Errorf("unsupported store type: %s", storeType)
+	}
+
 	return &Manager{
-		Pending:       *queue.New(),
+		Pending:       queue.New(),
 		Workers:       workers,
 		WorkerNodes:   nodes,
-		TaskDb:        make(map[uuid.UUID]*task.Task),
-		EventDb:       make(map[uuid.UUID]*task.TaskEvent),
+		TaskDb:        taskDb,
+		EventDb:       taskEventDb,
 		WorkerTaskMap: workerTaskMap,
 		TaskWorkerMap: make(map[uuid.UUID]string),
 		Scheduler:     sched,
 	}, nil
 }
 
-func (m *Manager) GetTasks() []*task.Task {
-	result := make([]*task.Task, 0, len(m.TaskDb))
-	for _, t := range m.TaskDb {
-		result = append(result, t)
+func (m *Manager) GetTasks() []task.Task {
+	tasks, err := m.TaskDb.List()
+	if err != nil {
+		log.Printf("failed to get tasks from store: %v", err)
+		return nil
 	}
-	return result
+	return tasks
 }
 
 func (m *Manager) AddTask(tEvent task.TaskEvent) {
@@ -82,12 +97,18 @@ func (m *Manager) SendWork() {
 
 	dequeued := m.Pending.Dequeue()
 	tEvent := dequeued.(task.TaskEvent)
-	m.EventDb[tEvent.Id] = &tEvent
+	if err := m.EventDb.Put(tEvent.Id, tEvent); err != nil {
+		log.Printf("failed to store dequeued task event, err: %v", err)
+	}
 	log.Printf("starting task processing: %v", tEvent.Task)
 
 	taskWorker, found := m.TaskWorkerMap[tEvent.Id]
 	if found {
-		persistedTask := m.TaskDb[tEvent.Task.Id]
+		persistedTask, err := m.TaskDb.Get(tEvent.Task.Id)
+		if err != nil {
+			log.Printf("failed to retrieve task with Id %v from store, err: %v", tEvent.Task.Id, err)
+			return
+		}
 		if tEvent.State != task.Completed {
 			log.Printf("invalid request: existing task %v cannot transition to state %v", persistedTask.Id, tEvent.State)
 			return
@@ -108,11 +129,14 @@ func (m *Manager) SendWork() {
 
 	m.WorkerTaskMap[wNode.Name] = append(m.WorkerTaskMap[wNode.Name], tEvent.Task.Id)
 	m.TaskWorkerMap[tEvent.Task.Id] = wNode.Name
-	m.TaskDb[tEvent.Task.Id] = &tEvent.Task
+	if err = m.TaskDb.Put(tEvent.Task.Id, tEvent.Task); err != nil {
+		log.Printf("failed to store task, err: %v", err)
+		return
+	}
 
 	jsonTaskEvent, err := json.Marshal(tEvent)
 	if err != nil {
-		log.Printf("failed to marshal task event %v", tEvent)
+		log.Printf("failed to marshal task event %v, err: %v", tEvent, err)
 		return
 	}
 
@@ -204,6 +228,18 @@ func (m *Manager) updateTasks() {
 }
 
 func (m *Manager) stopTask(taskId uuid.UUID, worker string) {
+	var wNode *node.Node
+	for _, n := range m.WorkerNodes {
+		if n.Name == worker {
+			wNode = n
+			break
+		}
+	}
+	if wNode == nil {
+		log.Printf("couldn't find worker node with name: %s", worker)
+		return
+	}
+
 	url := fmt.Sprintf("http://%s/tasks/%v", worker, taskId)
 	request, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
@@ -223,13 +259,14 @@ func (m *Manager) stopTask(taskId uuid.UUID, worker string) {
 		return
 	}
 
+	wNode.TaskCount--
 	log.Printf("task %s has been scheduled to stop", taskId)
 }
 
 func (m *Manager) updateTask(t *task.Task) {
-	dbTask, found := m.TaskDb[t.Id]
-	if !found {
-		log.Printf("task %s not found in local database", t.Id)
+	dbTask, err := m.TaskDb.Get(t.Id)
+	if err != nil {
+		log.Printf("failed to retrieve task %s from store, err: %v", t.Id, err)
 		return
 	}
 
@@ -237,17 +274,24 @@ func (m *Manager) updateTask(t *task.Task) {
 	dbTask.StartTime = t.StartTime
 	dbTask.FinishTime = t.FinishTime
 	dbTask.ContainerId = t.ContainerId
+
+	if err := m.TaskDb.Put(t.Id, dbTask); err != nil {
+		log.Printf("failed to update task %s, err: %v", t.Id, err)
+		return
+	}
+
 	log.Printf("task %s updated in local database", t.Id)
 }
 
 func (m *Manager) checkTasksHealth() {
-	for _, t := range m.TaskDb {
+	tasks := m.GetTasks()
+	for _, t := range tasks {
 		if t.RestartCount >= 3 {
 			continue
 		}
 
 		if t.State == task.Running {
-			err := m.checkTaskHealth(*t)
+			err := m.checkTaskHealth(t)
 			if err != nil {
 				log.Printf("health check failed for %v: %v", t.Id, err)
 				m.restartTask(t)
@@ -279,17 +323,20 @@ func (m *Manager) checkTaskHealth(t task.Task) error {
 	return nil
 }
 
-func (m *Manager) restartTask(t *task.Task) {
-	workerAddr := m.TaskWorkerMap[t.Id]
+func (m *Manager) restartTask(t task.Task) {
+	// Update task in store
 	t.State = task.Scheduled
 	t.RestartCount++
-	m.TaskDb[t.Id] = t // Ensure the task state is updated
+	if err := m.TaskDb.Put(t.Id, t); err != nil {
+		log.Printf("failed to update task %s, err: %v", t.Id, err)
+		return
+	}
 
 	tEvent := task.TaskEvent{
 		Id:        uuid.New(),
 		State:     task.Running,
 		Timestamp: time.Now(),
-		Task:      *t,
+		Task:      t,
 	}
 	data, err := json.Marshal(tEvent)
 	if err != nil {
@@ -297,6 +344,7 @@ func (m *Manager) restartTask(t *task.Task) {
 		return
 	}
 
+	workerAddr := m.TaskWorkerMap[t.Id]
 	url := fmt.Sprintf("http://%s/tasks", workerAddr)
 	response, err := http.Post(url, "application/json", bytes.NewBuffer(data))
 	if err != nil {
