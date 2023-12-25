@@ -12,20 +12,20 @@ func NewMemoryStore[TKey comparable, TVal any]() *MemoryStore[TKey, TVal] {
 	return &MemoryStore[TKey, TVal]{map[TKey]TVal{}}
 }
 
-func (t *MemoryStore[TKey, TVal]) List() ([]TVal, error) {
-	tasks := make([]TVal, len(t.Db))
-	for _, storedTask := range t.Db {
+func (s *MemoryStore[TKey, TVal]) List() ([]TVal, error) {
+	tasks := make([]TVal, len(s.Db))
+	for _, storedTask := range s.Db {
 		tasks = append(tasks, storedTask)
 	}
 	return tasks, nil
 }
 
-func (t *MemoryStore[TKey, TVal]) Count() (int, error) {
-	return len(t.Db), nil
+func (s *MemoryStore[TKey, TVal]) Count() (int, error) {
+	return len(s.Db), nil
 }
 
-func (t *MemoryStore[TKey, TVal]) Get(key TKey) (TVal, error) {
-	storedTask, found := t.Db[key]
+func (s *MemoryStore[TKey, TVal]) Get(key TKey) (TVal, error) {
+	storedTask, found := s.Db[key]
 	if !found {
 		var defaultVal TVal
 		return defaultVal, fmt.Errorf("item with key %v not found", key)
@@ -33,7 +33,11 @@ func (t *MemoryStore[TKey, TVal]) Get(key TKey) (TVal, error) {
 	return storedTask, nil
 }
 
-func (t *MemoryStore[TKey, TVal]) Put(key TKey, value TVal) error {
-	t.Db[key] = value
+func (s *MemoryStore[TKey, TVal]) Put(key TKey, value TVal) error {
+	s.Db[key] = value
+	return nil
+}
+
+func (s *MemoryStore[TKey, TVal]) Close() error {
 	return nil
 }

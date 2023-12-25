@@ -59,8 +59,15 @@ func New(workers []string, schedulerType string, storeType string) (*Manager, er
 		taskDb = store.NewMemoryStore[uuid.UUID, task.Task]()
 		taskEventDb = store.NewMemoryStore[uuid.UUID, task.TaskEvent]()
 	case "persisted":
-		taskDb = store.NewPersistedStore[uuid.UUID, task.Task]()
-		taskEventDb = store.NewPersistedStore[uuid.UUID, task.TaskEvent]()
+		var err error
+		taskDb, err = store.NewPersistedStore[uuid.UUID, task.Task]("manager_tasks.db", 0600, "tasks")
+		if err != nil {
+			return nil, err
+		}
+		taskEventDb, err = store.NewPersistedStore[uuid.UUID, task.TaskEvent]("manager_task_events.db", 0600, "taskEvents")
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unsupported store type: %s", storeType)
 	}
@@ -75,6 +82,15 @@ func New(workers []string, schedulerType string, storeType string) (*Manager, er
 		TaskWorkerMap: make(map[uuid.UUID]string),
 		Scheduler:     sched,
 	}, nil
+}
+
+func (m *Manager) Close() error {
+	err1 := m.TaskDb.Close()
+	err2 := m.EventDb.Close()
+	if err1 != nil {
+		return err1
+	}
+	return err2
 }
 
 func (m *Manager) GetTasks() []task.Task {

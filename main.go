@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"orchestrator/manager"
 	"orchestrator/worker"
 	"os"
@@ -11,6 +12,14 @@ import (
 func main() {
 	workerApi, workerApiAddr := startWorker()
 	managerApi := startManager(workerApiAddr)
+	defer func() {
+		if err := managerApi.Manager.Close(); err != nil {
+			log.Printf("failed to stop manager, err: %v", err)
+		}
+		if err := workerApi.Worker.Close(); err != nil {
+			log.Printf("failed to stop worker, err: %v", err)
+		}
+	}()
 
 	go workerApi.StartRouter()
 	managerApi.StartRouter()

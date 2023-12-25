@@ -26,7 +26,12 @@ func New(name string, storeType string) (*Worker, error) {
 	case "memory":
 		db = store.NewMemoryStore[uuid.UUID, task.Task]()
 	case "persisted":
-		db = store.NewPersistedStore[uuid.UUID, task.Task]()
+		var err error
+		dbFileName := fmt.Sprintf("%s.db", name)
+		db, err = store.NewPersistedStore[uuid.UUID, task.Task](dbFileName, 0600, "tasks")
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unsupported store type: %s", storeType)
 	}
@@ -36,6 +41,10 @@ func New(name string, storeType string) (*Worker, error) {
 		Queue: queue.New(),
 		Db:    db,
 	}, nil
+}
+
+func (w *Worker) Close() error {
+	return w.Db.Close()
 }
 
 func (w *Worker) GetTasks() []task.Task {

@@ -5,4 +5,5 @@ type Store[TKey, TVal any] interface {
 	Count() (int, error)
 	Get(key TKey) (TVal, error)
 	Put(key TKey, value TVal) error
+	Close() error
 }
