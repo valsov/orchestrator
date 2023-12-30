@@ -3,11 +3,9 @@ package manager
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/golang-collections/collections/queue"
@@ -106,7 +104,43 @@ func (m *Manager) AddTask(tEvent task.TaskEvent) {
 	m.Pending.Enqueue(tEvent)
 }
 
-func (m *Manager) SendWork() {
+func (m *Manager) ProcessTasks() {
+	for {
+		log.Print("starting queued tasks processing")
+		m.sendWork()
+		log.Print("queued tasks processing completed")
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (m *Manager) CheckTasksHealth() {
+	for {
+		log.Print("checking tasks health")
+		m.checkTasksHealth()
+		log.Print("tasks health check completed")
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (m *Manager) UpdateTasks() {
+	for {
+		log.Print("checking for workers' tasks update")
+		m.updateTasks()
+		log.Print("tasks update completed")
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (m *Manager) CheckNodesStats() {
+	for {
+		log.Print("checking nodes stats")
+		m.updateNodesStats()
+		log.Print("nodes stats retrieval completed")
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (m *Manager) sendWork() {
 	if m.Pending.Len() == 0 {
 		return
 	}
@@ -184,42 +218,6 @@ func (m *Manager) SendWork() {
 	} else {
 		wNode.TaskCount++
 		log.Printf("%#v", t)
-	}
-}
-
-func (m *Manager) ProcessTasks() {
-	for {
-		log.Print("starting queued tasks processing")
-		m.SendWork()
-		log.Print("queued tasks processing completed")
-		time.Sleep(10 * time.Second)
-	}
-}
-
-func (m *Manager) CheckTasksHealth() {
-	for {
-		log.Print("checking tasks health")
-		m.checkTasksHealth()
-		log.Print("tasks health check completed")
-		time.Sleep(10 * time.Second)
-	}
-}
-
-func (m *Manager) UpdateTasks() {
-	for {
-		log.Print("checking for workers' tasks update")
-		m.updateTasks()
-		log.Print("tasks update completed")
-		time.Sleep(10 * time.Second)
-	}
-}
-
-func (m *Manager) CheckNodesStats() {
-	for {
-		log.Print("checking nodes stats")
-		m.updateNodesStats()
-		log.Print("nodes stats retrieval completed")
-		time.Sleep(10 * time.Second)
 	}
 }
 
@@ -324,37 +322,10 @@ func (m *Manager) checkTasksHealth() {
 			continue
 		}
 
-		if t.State == task.Running {
-			err := m.checkTaskHealth(t)
-			if err != nil {
-				log.Printf("health check failed for %v: %v", t.Id, err)
-				m.restartTask(t)
-			}
-		} else if t.State == task.Failed {
+		if t.State == task.Failed {
 			m.restartTask(t)
 		}
 	}
-}
-
-func (m *Manager) checkTaskHealth(t task.Task) error {
-	workerAddr := m.TaskWorkerMap[t.Id]
-	workerHost := strings.Split(workerAddr, ":")
-	hostPort, err := getHostPort(t.PortBindings)
-	if err != nil {
-		return err
-	}
-	url := fmt.Sprintf("http://%s:%s/metrics", workerHost[0], hostPort)
-	response, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check call returned unexpected status code: %d (%s)", response.StatusCode, response.Status)
-	}
-
-	log.Printf("task %v is healthy", t.Id)
-	return nil
 }
 
 func (m *Manager) restartTask(t task.Task) {
@@ -406,13 +377,6 @@ func (m *Manager) restartTask(t task.Task) {
 		return
 	}
 	log.Printf("%#v", newTask)
-}
-
-func getHostPort(pb map[string]string) (string, error) {
-	for _, port := range pb {
-		return port, nil
-	}
-	return "", errors.New("port map is empty")
 }
 
 func (m *Manager) selectWorker(t task.Task) (*node.Node, error) {
