@@ -2,10 +2,8 @@ package node
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"orchestrator/stats"
 )
@@ -37,24 +35,18 @@ func (n *Node) UpdateStats() error {
 	url := fmt.Sprintf("%s/metrics", n.Api)
 	resp, err = http.Get(url)
 	if err != nil {
-		msg := fmt.Sprintf("unable to connect to %v", n.Api)
-		log.Println(msg)
-		return errors.New(msg)
+		return fmt.Errorf("unable to connect to %v", n.Api)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		msg := fmt.Sprintf("encountered unexpected http code retrieving stats from %s: %v, err:%v", n.Api, resp.StatusCode, err)
-		log.Println(msg)
-		return errors.New(msg)
+		return fmt.Errorf("encountered unexpected http code retrieving stats from %s: %v, err: %v", n.Api, resp.StatusCode, err)
 	}
 
 	body, _ := io.ReadAll(resp.Body)
 	var stats stats.Stats
 	err = json.Unmarshal(body, &stats)
 	if err != nil {
-		msg := fmt.Sprintf("error decoding message while getting stats for node %s", n.Name)
-		log.Println(msg)
-		return errors.New(msg)
+		return fmt.Errorf("error decoding message while getting stats for node %s", n.Name)
 	}
 
 	if stats.MemoryStats == nil || stats.DiskStats == nil {

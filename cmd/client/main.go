@@ -118,24 +118,24 @@ func main() {
 func startTask(baseUrl string, filePath string) error {
 	f, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to open task file, err:%v", err)
+		return fmt.Errorf("failed to open task file, err: %v", err)
 	}
 	defer f.Close()
 
 	buffer, err := io.ReadAll(f)
 	if err != nil {
-		return fmt.Errorf("failed to read task file, err:%v", err)
+		return fmt.Errorf("failed to read task file, err: %v", err)
 	}
 
 	var tInput taskInput
 	err = json.Unmarshal(buffer, &tInput)
 	if err != nil {
-		return fmt.Errorf("invalid json representation of task in file, err:%v", err)
+		return fmt.Errorf("invalid json representation of task in file, err: %v", err)
 	}
 
 	exposedPorts, err := portSliceToPortSet(tInput.ExposedPorts)
 	if err != nil {
-		return fmt.Errorf("failed to parse exposed ports, err:%v", err)
+		return fmt.Errorf("failed to parse exposed ports, err: %v", err)
 	}
 	tEvent := task.TaskEvent{
 		Id:        uuid.New(),

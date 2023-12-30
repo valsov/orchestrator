@@ -33,7 +33,7 @@ func (e *Epvm) Score(t task.Task, nodes []*node.Node) map[string]float64 {
 	for _, node := range nodes {
 		err := node.UpdateStats()
 		if err != nil {
-			log.Printf("failed to update node %s stats, err: %v", node.Name, err)
+			log.Printf("failed to update node '%s' stats, err: %v", node.Name, err)
 			continue
 		}
 
