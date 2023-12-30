@@ -2,10 +2,8 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/urfave/cli/v2"
 
@@ -18,10 +16,9 @@ func main() {
 		Usage: "start the manager process and API",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:    "host",
-				Aliases: []string{"h"},
-				Usage:   "host to serve the API on",
-				Value:   "127.0.0.1",
+				Name:  "host",
+				Usage: "host to serve the API on",
+				Value: "127.0.0.1",
 			},
 			&cli.IntFlag{
 				Name:    "port",
@@ -72,11 +69,6 @@ func main() {
 }
 
 func startManager(host string, port int, storeType string, schedulerType string, workers []string) {
-	for i := 0; i < len(workers); i++ {
-		if !strings.HasPrefix(workers[i], "http") {
-			workers[i] = fmt.Sprintf("http://%s", workers[i])
-		}
-	}
 	m, err := manager.New(workers, schedulerType, storeType)
 	if err != nil {
 		log.Printf("manager creation failed: %v", err)
@@ -95,9 +87,6 @@ func startManager(host string, port int, storeType string, schedulerType string,
 	go m.CheckTasksHealth()
 
 	// Run API
-	if !strings.HasPrefix(host, "http") {
-		host = fmt.Sprintf("http://%s", host)
-	}
 	log.Printf("Manager API listening on %s:%d", host, port)
 	api := manager.Api{Address: host, Port: port, Manager: m}
 	api.StartRouter()

@@ -2,10 +2,8 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/urfave/cli/v2"
 
@@ -24,10 +22,9 @@ func main() {
 				Required: true,
 			},
 			&cli.StringFlag{
-				Name:    "host",
-				Aliases: []string{"h"},
-				Usage:   "host to serve the API on",
-				Value:   "127.0.0.1",
+				Name:  "host",
+				Usage: "host to serve the API on",
+				Value: "127.0.0.1",
 			},
 			&cli.IntFlag{
 				Name:    "port",
@@ -78,9 +75,6 @@ func startWorker(name string, host string, port int, storeType string) {
 	go w.UpdateTasks()
 
 	// Run API
-	if !strings.HasPrefix(host, "http") {
-		host = fmt.Sprintf("http://%s", host)
-	}
 	log.Printf("Worker %s API listening on %s:%d", name, host, port)
 	api := worker.Api{Address: host, Port: port, Worker: w}
 	api.StartRouter()

@@ -12,7 +12,6 @@ import (
 
 type Node struct {
 	Name            string
-	Ip              string
 	Api             string
 	Role            string
 	Stats           stats.Stats

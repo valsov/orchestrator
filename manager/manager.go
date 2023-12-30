@@ -34,12 +34,12 @@ type Manager struct {
 func New(workers []string, schedulerType string, storeType string) (*Manager, error) {
 	workerTaskMap := make(map[string][]uuid.UUID)
 	nodes := make([]*node.Node, len(workers))
-	for _, worker := range workers {
+	for i, worker := range workers {
 		workerTaskMap[worker] = []uuid.UUID{}
 
 		nodeApi := fmt.Sprintf("http://%s", worker)
 		newNode := node.NewNode(worker, nodeApi, "worker")
-		nodes = append(nodes, &newNode)
+		nodes[i] = &newNode
 	}
 
 	var sched scheduler.Scheduler
