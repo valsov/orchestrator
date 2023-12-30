@@ -139,11 +139,11 @@ func startTask(baseUrl string, filePath string) error {
 	}
 	tEvent := task.TaskEvent{
 		Id:        uuid.New(),
-		State:     task.Pending,
+		State:     task.Scheduled,
 		Timestamp: time.Now(),
 		Task: task.Task{
 			Id:            uuid.New(),
-			State:         task.Pending,
+			State:         task.Scheduled,
 			Name:          tInput.Name,
 			Image:         tInput.Image,
 			Cpu:           tInput.Cpu,
@@ -170,18 +170,16 @@ func startTask(baseUrl string, filePath string) error {
 		return fmt.Errorf("received invalid http status code: %d", response.StatusCode)
 	}
 
+	log.Print("task creation request successfully submitted")
 	return nil
 }
 
 func stopTask(baseUrl string, taskId uuid.UUID) error {
-	url := fmt.Sprintf("%s/tasks", baseUrl)
+	url := fmt.Sprintf("%s/tasks/%v", baseUrl, taskId)
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return err
 	}
-	query := req.URL.Query()
-	query.Add("taskId", taskId.String())
-	req.URL.RawQuery = query.Encode()
 
 	client := http.Client{}
 	response, err := client.Do(req)
@@ -190,10 +188,11 @@ func stopTask(baseUrl string, taskId uuid.UUID) error {
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode != http.StatusCreated {
+	if response.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("received invalid http status code: %d", response.StatusCode)
 	}
 
+	log.Print("task deletion request successfully submitted")
 	return nil
 }
 
