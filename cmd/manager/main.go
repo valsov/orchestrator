@@ -85,6 +85,7 @@ func startManager(host string, port int, storeType string, schedulerType string,
 	go m.ProcessTasks()
 	go m.UpdateTasks()
 	go m.CheckTasksHealth()
+	go m.CheckNodesStats()
 
 	// Run API
 	log.Printf("Manager API listening on %s:%d", host, port)
