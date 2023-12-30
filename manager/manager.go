@@ -325,7 +325,7 @@ func (m *Manager) checkTaskHealth(t task.Task) error {
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("http://%s:%s%s", workerHost[0], hostPort, t.HealthCheck)
+	url := fmt.Sprintf("http://%s:%s/metrics", workerHost[0], hostPort)
 	response, err := http.Get(url)
 	if err != nil {
 		return err
