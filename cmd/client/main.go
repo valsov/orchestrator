@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"orchestrator/node"
@@ -12,9 +13,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
 	"github.com/urfave/cli/v2"
 )
+
+type taskInput struct {
+	Name          string
+	Image         string
+	Cpu           float64
+	Memory        int64
+	Disk          int64
+	ExposedPorts  []string
+	PortBindings  map[string]string
+	RestartPolicy string
+}
 
 func main() {
 	app := &cli.App{
@@ -23,7 +36,6 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "host",
-				Aliases:  []string{"h"},
 				Usage:    "manager API host",
 				Required: true,
 			},
@@ -104,13 +116,42 @@ func main() {
 }
 
 func startTask(baseUrl string, filePath string) error {
-	state := task.Pending
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open task file, err:%v", err)
+	}
+	defer f.Close()
+
+	buffer, err := io.ReadAll(f)
+	if err != nil {
+		return fmt.Errorf("failed to read task file, err:%v", err)
+	}
+
+	var tInput taskInput
+	err = json.Unmarshal(buffer, &tInput)
+	if err != nil {
+		return fmt.Errorf("invalid json representation of task in file, err:%v", err)
+	}
+
+	exposedPorts, err := portSliceToPortSet(tInput.ExposedPorts)
+	if err != nil {
+		return fmt.Errorf("failed to parse exposed ports, err:%v", err)
+	}
 	tEvent := task.TaskEvent{
 		Id:        uuid.New(),
-		State:     state,
+		State:     task.Pending,
 		Timestamp: time.Now(),
 		Task: task.Task{
-			Id: uuid.New(),
+			Id:            uuid.New(),
+			State:         task.Pending,
+			Name:          tInput.Name,
+			Image:         tInput.Image,
+			Cpu:           tInput.Cpu,
+			Memory:        tInput.Memory,
+			Disk:          tInput.Disk,
+			ExposedPorts:  exposedPorts,
+			PortBindings:  tInput.PortBindings,
+			RestartPolicy: tInput.RestartPolicy,
 		},
 	}
 	jsonTaskEvent, err := json.Marshal(tEvent)
@@ -238,7 +279,15 @@ func listNodes(baseUrl string) error {
 
 func getUrl(host string, port int) string {
 	if !strings.HasPrefix(host, "http") {
-		host = fmt.Sprintf("http://%s", host)
+		host = fmt.Sprintf("http://%s:%d", host, port)
 	}
 	return host
+}
+
+func portSliceToPortSet(ports []string) (nat.PortSet, error) {
+	pSet, _, err := nat.ParsePortSpecs(ports)
+	if err != nil {
+		return nil, err
+	}
+	return pSet, nil
 }
