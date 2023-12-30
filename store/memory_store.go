@@ -14,8 +14,10 @@ func NewMemoryStore[TKey comparable, TVal any]() *MemoryStore[TKey, TVal] {
 
 func (s *MemoryStore[TKey, TVal]) List() ([]TVal, error) {
 	tasks := make([]TVal, len(s.Db))
+	i := 0
 	for _, storedTask := range s.Db {
-		tasks = append(tasks, storedTask)
+		tasks[i] = storedTask
+		i++
 	}
 	return tasks, nil
 }
