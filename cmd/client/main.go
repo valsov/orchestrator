@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"orchestrator/node"
 	"orchestrator/task"
@@ -111,7 +110,7 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		fmt.Printf("[ERROR] %v", err)
 	}
 }
 
@@ -170,7 +169,7 @@ func startTask(baseUrl string, filePath string) error {
 		return fmt.Errorf("received invalid http status code: %d", response.StatusCode)
 	}
 
-	log.Print("task creation request successfully submitted")
+	fmt.Println("[OK] task creation request successfully submitted")
 	return nil
 }
 
@@ -192,7 +191,7 @@ func stopTask(baseUrl string, taskId uuid.UUID) error {
 		return fmt.Errorf("received invalid http status code: %d", response.StatusCode)
 	}
 
-	log.Print("task deletion request successfully submitted")
+	fmt.Println("[OK] task deletion request successfully submitted")
 	return nil
 }
 
@@ -203,13 +202,13 @@ func listTasks(baseUrl string) error {
 	}
 
 	if len(tasks) == 0 {
-		log.Print("no task found")
+		fmt.Println("No task found")
 		return nil
 	}
 
-	log.Printf("found %d task(s)", len(tasks))
+	fmt.Printf("[OK] found %d task(s):\n", len(tasks))
 	for _, t := range tasks {
-		log.Printf("%#v", t)
+		fmt.Printf("- %#v\n", t)
 	}
 	return nil
 }
@@ -231,7 +230,7 @@ func getTask(baseUrl string, taskId uuid.UUID) error {
 		return fmt.Errorf("task with id %v not found", taskId)
 	}
 
-	log.Printf("%#v", *foundTask)
+	fmt.Printf("%#v\n", *foundTask)
 	return nil
 }
 
@@ -265,13 +264,13 @@ func listNodes(baseUrl string) error {
 	}
 
 	if len(nodes) == 0 {
-		log.Print("no managed node found")
+		fmt.Println("[INFO] no managed node found")
 		return nil
 	}
 
-	log.Printf("found %d node(s)", len(nodes))
+	fmt.Printf("[OK] found %d node(s):\n", len(nodes))
 	for _, n := range nodes {
-		log.Printf("%#v", n)
+		fmt.Printf("- %#v\n", n)
 	}
 	return nil
 }
