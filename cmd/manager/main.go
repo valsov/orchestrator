@@ -15,11 +15,6 @@ func main() {
 		Name:  "containers orchestration manager",
 		Usage: "start the manager process and API",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:  "host",
-				Usage: "host to serve the API on",
-				Value: "127.0.0.1",
-			},
 			&cli.IntFlag{
 				Name:    "port",
 				Aliases: []string{"p"},
@@ -58,7 +53,7 @@ func main() {
 			},
 		},
 		Action: func(ctx *cli.Context) error {
-			startManager(ctx.String("host"), ctx.Int("port"), ctx.String("storeType"), ctx.String("schedulerType"), ctx.StringSlice("worker"))
+			startManager(ctx.Int("port"), ctx.String("storeType"), ctx.String("schedulerType"), ctx.StringSlice("worker"))
 			return nil
 		},
 	}
@@ -68,7 +63,7 @@ func main() {
 	}
 }
 
-func startManager(host string, port int, storeType string, schedulerType string, workers []string) {
+func startManager(port int, storeType string, schedulerType string, workers []string) {
 	m, err := manager.New(workers, schedulerType, storeType)
 	if err != nil {
 		log.Printf("manager creation failed: %v", err)
@@ -88,6 +83,7 @@ func startManager(host string, port int, storeType string, schedulerType string,
 	go m.CheckNodesStats()
 
 	// Run API
+	host := "127.0.0.1"
 	log.Printf("Manager API listening on %s:%d", host, port)
 	api := manager.Api{Address: host, Port: port, Manager: m}
 	api.StartRouter()

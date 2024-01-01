@@ -21,11 +21,6 @@ func main() {
 				Usage:    "name of the worker",
 				Required: true,
 			},
-			&cli.StringFlag{
-				Name:  "host",
-				Usage: "host to serve the API on",
-				Value: "127.0.0.1",
-			},
 			&cli.IntFlag{
 				Name:    "port",
 				Aliases: []string{"p"},
@@ -46,7 +41,7 @@ func main() {
 			},
 		},
 		Action: func(ctx *cli.Context) error {
-			startWorker(ctx.String("name"), ctx.String("host"), ctx.Int("port"), ctx.String("storeType"))
+			startWorker(ctx.String("name"), ctx.Int("port"), ctx.String("storeType"))
 			return nil
 		},
 	}
@@ -56,7 +51,7 @@ func main() {
 	}
 }
 
-func startWorker(name string, host string, port int, storeType string) {
+func startWorker(name string, port int, storeType string) {
 	w, err := worker.New(name, storeType)
 	if err != nil {
 		log.Printf("worker creation failed: %v", err)
@@ -75,6 +70,7 @@ func startWorker(name string, host string, port int, storeType string) {
 	go w.UpdateTasks()
 
 	// Run API
+	host := "127.0.0.1"
 	log.Printf("Worker %s API listening on %s:%d", name, host, port)
 	api := worker.Api{Address: host, Port: port, Worker: w}
 	api.StartRouter()
