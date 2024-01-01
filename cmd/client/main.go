@@ -126,50 +126,56 @@ func startTask(baseUrl string, filePath string) error {
 		return fmt.Errorf("failed to read task file, err: %v", err)
 	}
 
-	var tInput taskInput
-	err = json.Unmarshal(buffer, &tInput)
+	var tasks []taskInput
+	err = json.Unmarshal(buffer, &tasks)
 	if err != nil {
-		return fmt.Errorf("invalid json representation of task in file, err: %v", err)
+		return fmt.Errorf("invalid json representation of tasks in file, err: %v", err)
 	}
-
-	exposedPorts, err := portSliceToPortSet(tInput.ExposedPorts)
-	if err != nil {
-		return fmt.Errorf("failed to parse exposed ports, err: %v", err)
-	}
-	tEvent := task.TaskEvent{
-		Id:        uuid.New(),
-		State:     task.Scheduled,
-		Timestamp: time.Now(),
-		Task: task.Task{
-			Id:            uuid.New(),
-			State:         task.Scheduled,
-			Name:          tInput.Name,
-			Image:         tInput.Image,
-			Cpu:           tInput.Cpu,
-			Memory:        tInput.Memory,
-			Disk:          tInput.Disk,
-			ExposedPorts:  exposedPorts,
-			PortBindings:  tInput.PortBindings,
-			RestartPolicy: tInput.RestartPolicy,
-		},
-	}
-	jsonTaskEvent, err := json.Marshal(tEvent)
-	if err != nil {
-		return err
+	if len(tasks) == 0 {
+		return fmt.Errorf("found no task in file")
 	}
 
 	url := fmt.Sprintf("%s/tasks", baseUrl)
-	response, err := http.Post(url, "application/json", bytes.NewBuffer(jsonTaskEvent))
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
+	for _, t := range tasks {
+		exposedPorts, err := portSliceToPortSet(t.ExposedPorts)
+		if err != nil {
+			return fmt.Errorf("failed to parse exposed ports, err: %v", err)
+		}
+		tEvent := task.TaskEvent{
+			Id:        uuid.New(),
+			State:     task.Scheduled,
+			Timestamp: time.Now(),
+			Task: task.Task{
+				Id:            uuid.New(),
+				State:         task.Scheduled,
+				Name:          t.Name,
+				Image:         t.Image,
+				Cpu:           t.Cpu,
+				Memory:        t.Memory,
+				Disk:          t.Disk,
+				ExposedPorts:  exposedPorts,
+				PortBindings:  t.PortBindings,
+				RestartPolicy: t.RestartPolicy,
+			},
+		}
+		jsonTaskEvent, err := json.Marshal(tEvent)
+		if err != nil {
+			return err
+		}
 
-	if response.StatusCode != http.StatusCreated {
-		return fmt.Errorf("received invalid http status code: %d", response.StatusCode)
+		response, err := http.Post(url, "application/json", bytes.NewBuffer(jsonTaskEvent))
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusCreated {
+			return fmt.Errorf("received invalid http status code for task %s: %d", t.Name, response.StatusCode)
+		}
+
+		fmt.Printf("[OK] '%s' task creation request successfully submitted\n", t.Name)
 	}
 
-	fmt.Println("[OK] task creation request successfully submitted")
 	return nil
 }
 
