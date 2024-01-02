@@ -3,7 +3,6 @@ package task
 import (
 	"context"
 	"io"
-	"log"
 	"math"
 	"os"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 type Task struct {
@@ -70,11 +70,6 @@ func NewConfig(t Task) Config {
 	}
 }
 
-type DockerInspectReponse struct {
-	Container *types.ContainerJSON
-	Error     error
-}
-
 type Docker struct {
 	Client      *client.Client
 	Config      Config
@@ -89,19 +84,12 @@ func NewDocker(c Config) *Docker {
 	}
 }
 
-type DockerResult struct {
-	Error       error
-	Action      string
-	ContainerId string
-	Result      string
-}
-
-func (d *Docker) Run() DockerResult {
+func (d *Docker) Run() (string, error) {
 	ctx := context.Background()
 	reader, err := d.Client.ImagePull(ctx, d.Config.Image, types.ImagePullOptions{})
 	if err != nil {
-		log.Printf("error pulling image %s: %v", d.Config.Image, err)
-		return DockerResult{Error: err}
+		log.Err(err).Str("image", d.Config.Image).Msg("error pulling image")
+		return "", err
 	}
 	io.Copy(os.Stdout, reader) // Display pull result
 
@@ -120,54 +108,49 @@ func (d *Docker) Run() DockerResult {
 	}
 	response, err := d.Client.ContainerCreate(ctx, &containerConfig, &hostConfig, nil, nil, d.Config.Name)
 	if err != nil {
-		log.Printf("error creating container with image %s: %v", d.Config.Image, err)
-		return DockerResult{Error: err}
+		log.Err(err).Str("image", d.Config.Image).Msg("error creating container")
+		return "", err
 	}
 
 	err = d.Client.ContainerStart(ctx, response.ID, types.ContainerStartOptions{})
 	if err != nil {
-		log.Printf("error starting container %s: %v", response.ID, err)
-		return DockerResult{Error: err}
+		log.Err(err).Str("image", d.Config.Image).Str("container-id", response.ID).Msg("error starting container")
+		return "", err
 	}
 
 	d.Config.ContainerId = response.ID
 	out, err := d.Client.ContainerLogs(ctx, response.ID, types.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
-		log.Printf("error getting logs for container %s: %v", response.ID, err)
+		log.Err(err).Str("image", d.Config.Image).Str("container-id", response.ID).Msg("error getting logs for container")
 	}
 	stdcopy.StdCopy(os.Stdout, os.Stderr, out)
 
-	return DockerResult{
-		ContainerId: response.ID,
-		Action:      "start",
-		Result:      "success",
-	}
+	return response.ID, nil
 }
 
-func (d *Docker) Stop(containerId string) DockerResult {
-	log.Printf("attempting to stop container %s", containerId)
+func (d *Docker) Stop(containerId string) error {
+	log.Debug().Str("container-id", containerId).Msg("attempting to stop container")
 	ctx := context.Background()
 	if err := d.Client.ContainerStop(ctx, containerId, container.StopOptions{}); err != nil {
-		log.Print(err)
-		panic(err)
+		log.Err(err).Str("container-id", containerId).Msg("failed to stop container")
+		return err
 	}
-
 	if err := d.Client.ContainerRemove(ctx, containerId, types.ContainerRemoveOptions{}); err != nil {
-		log.Print(err)
-		panic(err)
+		log.Err(err).Str("container-id", containerId).Msg("failed to remove container")
+		return err
 	}
 
-	return DockerResult{Action: "stop", Result: "success", ContainerId: containerId}
+	return nil
 }
 
-func (d *Docker) Inspect(containerId string) DockerInspectReponse {
+func (d *Docker) Inspect(containerId string) (types.ContainerJSON, error) {
 	ctx := context.Background()
 	response, err := d.Client.ContainerInspect(ctx, containerId)
 	if err != nil {
-		log.Printf("error inspecting container: %s", containerId)
-		return DockerInspectReponse{Error: err}
+		log.Err(err).Str("container-id", containerId).Msg("error inspecting container")
+		return types.ContainerJSON{}, err
 	}
-	return DockerInspectReponse{Container: &response}
+	return response, nil
 }
 
 func createPortMap(m map[string]string) nat.PortMap {

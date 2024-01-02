@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"orchestrator/node"
 	"orchestrator/scheduler"
@@ -94,7 +94,7 @@ func (m *Manager) Close() error {
 func (m *Manager) GetTasks() []task.Task {
 	tasks, err := m.TaskDb.List()
 	if err != nil {
-		log.Printf("failed to get tasks from store: %v", err)
+		log.Err(err).Msg("failed to get tasks from store")
 		return nil
 	}
 	return tasks
@@ -106,36 +106,36 @@ func (m *Manager) AddTask(tEvent task.TaskEvent) {
 
 func (m *Manager) ProcessTasks() {
 	for {
-		log.Print("starting queued tasks processing")
+		log.Debug().Msg("starting queued tasks processing")
 		m.sendWork()
-		log.Print("queued tasks processing completed")
+		log.Debug().Msg("queued tasks processing completed")
 		time.Sleep(10 * time.Second)
 	}
 }
 
 func (m *Manager) CheckTasksHealth() {
 	for {
-		log.Print("checking tasks health")
+		log.Debug().Msg("checking tasks health")
 		m.checkTasksHealth()
-		log.Print("tasks health check completed")
+		log.Debug().Msg("tasks health check completed")
 		time.Sleep(10 * time.Second)
 	}
 }
 
 func (m *Manager) UpdateTasks() {
 	for {
-		log.Print("checking for workers' tasks update")
+		log.Debug().Msg("checking for workers' tasks update")
 		m.updateTasks()
-		log.Print("tasks update completed")
+		log.Debug().Msg("tasks update completed")
 		time.Sleep(10 * time.Second)
 	}
 }
 
 func (m *Manager) CheckNodesStats() {
 	for {
-		log.Print("checking nodes stats")
+		log.Debug().Msg("checking nodes stats")
 		m.updateNodesStats()
-		log.Print("nodes stats retrieval completed")
+		log.Debug().Msg("nodes stats retrieval completed")
 		time.Sleep(10 * time.Second)
 	}
 }
@@ -148,52 +148,63 @@ func (m *Manager) sendWork() {
 	dequeued := m.Pending.Dequeue()
 	tEvent := dequeued.(task.TaskEvent)
 	if err := m.EventDb.Put(tEvent.Id, tEvent); err != nil {
-		log.Printf("failed to store dequeued task event, err: %v", err)
+		log.Err(err).Msg("failed to store dequeued task event")
 	}
-	log.Printf("starting task processing: %v", tEvent.Task)
+
+	taskLogger := log.With().
+		Str("task-id", tEvent.Task.Id.String()).
+		Logger()
+	taskLogger.Debug().Msg("starting task processing")
 
 	taskWorker, found := m.TaskWorkerMap[tEvent.Id]
 	if found {
 		persistedTask, err := m.TaskDb.Get(tEvent.Task.Id)
 		if err != nil {
-			log.Printf("failed to retrieve task with Id %v from store, err: %v", tEvent.Task.Id, err)
+			taskLogger.Err(err).Msg("failed to retrieve task from store")
 			return
 		}
 		if tEvent.State != task.Completed {
-			log.Printf("invalid request: existing task %v cannot transition to state %v", persistedTask.Id, tEvent.State)
+			taskLogger.Error().
+				Str("target-state", fmt.Sprintf("%v", tEvent.State)).
+				Msg("invalid request: can't request other state transition than 'completed' for an existing task")
 			return
 		}
 		if task.ValidStateTransition(persistedTask.State, tEvent.State) {
 			m.stopTask(tEvent.Task.Id, taskWorker)
 		} else {
-			log.Printf("invalid request: existing task %v in state %v cannot transition to the completed state", persistedTask.Id, persistedTask.State)
+			taskLogger.Error().
+				Str("initial-state", fmt.Sprintf("%v", persistedTask.State)).
+				Msg("invalid request: forbidden state transition to 'completed'")
 		}
 		return
 	}
 
 	wNode, err := m.selectWorker(tEvent.Task)
 	if err != nil {
-		log.Printf("failed to select a worker to execute task %v", tEvent.Task.Id)
+		taskLogger.Err(err).Msg("failed to select a worker to execute task")
 		return
 	}
 
 	m.WorkerTaskMap[wNode.Name] = append(m.WorkerTaskMap[wNode.Name], tEvent.Task.Id)
 	m.TaskWorkerMap[tEvent.Task.Id] = wNode.Name
 	if err = m.TaskDb.Put(tEvent.Task.Id, tEvent.Task); err != nil {
-		log.Printf("failed to store task, err: %v", err)
+		taskLogger.Err(err).Msg("failed to store task")
 		return
 	}
 
 	jsonTaskEvent, err := json.Marshal(tEvent)
 	if err != nil {
-		log.Printf("failed to marshal task event %v, err: %v", tEvent, err)
+		taskLogger.Err(err).Msg("failed to marshal task event") // todo: add object to log context
 		return
 	}
 
-	url := fmt.Sprintf("http://%s/tasks", wNode.Name)
+	url := fmt.Sprintf("%s/tasks", wNode.Api)
 	response, err := http.Post(url, "application/json", bytes.NewBuffer(jsonTaskEvent))
 	if err != nil {
-		log.Printf("failed to send post request to %s", wNode.Name)
+		taskLogger.Err(err).
+			Str("node", wNode.Name).
+			Str("url", url).
+			Msg("failed to send post request")
 		m.Pending.Enqueue(tEvent) // Try again
 		return
 	}
@@ -204,20 +215,24 @@ func (m *Manager) sendWork() {
 		e := worker.ErrResponse{}
 		err = decoder.Decode(&e)
 		if err != nil {
-			log.Print("failed to decode error message")
+			taskLogger.Err(err).Msg("failed to decode error message")
 			return
 		}
-		log.Printf("received an unexpected response code (%d) from worker %s: %v", response.StatusCode, wNode.Name, e.Message)
+		taskLogger.Error().
+			Int("status-code", response.StatusCode).
+			Str("node", wNode.Name).
+			Str("url", url).
+			Str("message", e.Message).
+			Msg("received an unexpected response code from worker")
 		return
 	}
 
 	t := task.Task{}
 	err = decoder.Decode(&t)
 	if err != nil {
-		log.Printf("error decoding task reponse: %v", err)
+		taskLogger.Err(err).Msg("error decoding task reponse")
 	} else {
 		wNode.TaskCount++
-		log.Printf("%#v", t)
 	}
 }
 
@@ -225,23 +240,29 @@ func (m *Manager) updateNodesStats() {
 	for _, node := range m.WorkerNodes {
 		err := node.UpdateStats()
 		if err != nil {
-			log.Printf("failed to update node '%s' stats, err: %v", node.Name, err)
+			log.Err(err).Str("node", node.Name).Msg("failed to update node stats")
 		}
 	}
 }
 
 func (m *Manager) updateTasks() {
 	for _, worker := range m.Workers {
-		log.Printf("checking worker %s for task updates", worker)
+		workerLogger := log.Logger.
+			With().
+			Str("worker", worker).
+			Logger()
+		workerLogger.Debug().Msg("checking worker for task updates")
 		url := fmt.Sprintf("http://%s/tasks", worker)
 		response, err := http.Get(url)
 		if err != nil {
-			log.Printf("failed to send get request to %s: %v", worker, err)
+			workerLogger.Err(err).Msg("failed to send get request")
 			continue
 		}
 		defer response.Body.Close()
 		if response.StatusCode != http.StatusOK {
-			log.Printf("received an unexpected response code (%d) from worker %s", response.StatusCode, worker)
+			workerLogger.Error().
+				Int("status-code", response.StatusCode).
+				Msg("received an unexpected response code from worker")
 			continue
 		}
 
@@ -249,7 +270,7 @@ func (m *Manager) updateTasks() {
 		var tasks []*task.Task
 		err = decoder.Decode(&tasks)
 		if err != nil {
-			log.Printf("error decoding tasks reponse: %v", err)
+			workerLogger.Err(err).Msg("error decoding tasks reponse") // todo: add object to log context
 			continue
 		}
 
@@ -267,38 +288,51 @@ func (m *Manager) stopTask(taskId uuid.UUID, worker string) {
 			break
 		}
 	}
+
+	taskLogger := log.Logger.
+		With().
+		Str("task-id", taskId.String()).
+		Str("worker", worker).
+		Logger()
 	if wNode == nil {
-		log.Printf("couldn't find worker node with name: %s", worker)
+		taskLogger.Error().Msg("couldn't find worker node")
 		return
 	}
 
 	url := fmt.Sprintf("http://%s/tasks/%v", worker, taskId)
 	request, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
-		log.Printf("error creating task deletion request: %v", err)
+		taskLogger.Err(err).Msg("error creating task deletion request")
 		return
 	}
 
 	client := http.Client{}
 	response, err := client.Do(request)
 	if err != nil {
-		log.Printf("task deletion request sending failed: %v", err)
+		taskLogger.Err(err).Msg("task deletion request sending failed")
 		return
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
-		log.Printf("received an unexpected response code (%d) from worker %s", response.StatusCode, worker)
+		taskLogger.Error().
+			Int("status-code", response.StatusCode).
+			Msg("received an unexpected response code from worker")
 		return
 	}
 
 	wNode.TaskCount--
-	log.Printf("task %s has been scheduled to stop", taskId)
+	taskLogger.Info().Msg("task has been scheduled to stop")
 }
 
 func (m *Manager) updateTask(t *task.Task) {
+	taskLogger := log.Logger.
+		With().
+		Str("task-id", t.Id.String()).
+		Logger()
+
 	dbTask, err := m.TaskDb.Get(t.Id)
 	if err != nil {
-		log.Printf("failed to retrieve task %s from store, err: %v", t.Id, err)
+		taskLogger.Err(err).Msg("failed to retrieve task from store")
 		return
 	}
 
@@ -308,11 +342,11 @@ func (m *Manager) updateTask(t *task.Task) {
 	dbTask.ContainerId = t.ContainerId
 
 	if err := m.TaskDb.Put(t.Id, dbTask); err != nil {
-		log.Printf("failed to update task %s, err: %v", t.Id, err)
+		taskLogger.Err(err).Msg("failed to update task")
 		return
 	}
 
-	log.Printf("task %s updated in local database", t.Id)
+	taskLogger.Debug().Msg("task updated in local database")
 }
 
 func (m *Manager) checkTasksHealth() {
@@ -329,11 +363,16 @@ func (m *Manager) checkTasksHealth() {
 }
 
 func (m *Manager) restartTask(t task.Task) {
+	taskLogger := log.Logger.
+		With().
+		Str("task-id", t.Id.String()).
+		Logger()
+
 	// Update task in store
 	t.State = task.Scheduled
 	t.RestartCount++
 	if err := m.TaskDb.Put(t.Id, t); err != nil {
-		log.Printf("failed to update task %s, err: %v", t.Id, err)
+		taskLogger.Err(err).Msg("failed to update task")
 		return
 	}
 
@@ -345,7 +384,7 @@ func (m *Manager) restartTask(t task.Task) {
 	}
 	data, err := json.Marshal(tEvent)
 	if err != nil {
-		log.Printf("unable to marshal task object: %v", tEvent)
+		taskLogger.Err(err).Msg("unable to marshal task object") // todo: add object to log context
 		return
 	}
 
@@ -353,7 +392,9 @@ func (m *Manager) restartTask(t task.Task) {
 	url := fmt.Sprintf("http://%s/tasks", workerAddr)
 	response, err := http.Post(url, "application/json", bytes.NewBuffer(data))
 	if err != nil {
-		log.Printf("error connecting to %s: %v", workerAddr, err)
+		taskLogger.Err(err).
+			Str("worker", workerAddr).
+			Msg("error sending task creation request to worker")
 		return
 	}
 	defer response.Body.Close()
@@ -363,20 +404,22 @@ func (m *Manager) restartTask(t task.Task) {
 		e := worker.ErrResponse{}
 		err := d.Decode(&e)
 		if err != nil {
-			log.Printf("error decoding error response: %v", err)
+			taskLogger.Err(err).Msg("error decoding error response") // todo: add object to log context
 			return
 		}
-		log.Printf("response error [%d]: %s", e.HTTPStatusCode, e.Message)
+		taskLogger.Error().
+			Int("status-code", response.StatusCode).
+			Str("message", e.Message).
+			Msg("received error response from worker")
 		return
 	}
 
 	newTask := task.Task{}
 	err = d.Decode(&newTask)
 	if err != nil {
-		log.Printf("error decoding response: %v", err)
+		taskLogger.Err(err).Msg("error decoding worker response") // todo: add object to log context
 		return
 	}
-	log.Printf("%#v", newTask)
 }
 
 func (m *Manager) selectWorker(t task.Task) (*node.Node, error) {

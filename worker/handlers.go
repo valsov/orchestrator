@@ -2,13 +2,15 @@ package worker
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
+	"orchestrator/store"
 	"orchestrator/task"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 type ErrResponse struct {
@@ -22,18 +24,17 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 	tEvent := task.TaskEvent{}
 	err := data.Decode(&tEvent)
 	if err != nil {
-		errMessage := fmt.Sprintf("error unmarshalling request body: %v", err)
-		log.Print(errMessage)
+		log.Err(err).Msg("start task handler error: failed to unmarshall request body") // todo: add body to log props
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrResponse{
-			Message:        errMessage,
+			Message:        fmt.Sprintf("error unmarshalling request body: %v", err),
 			HTTPStatusCode: http.StatusBadRequest,
 		})
 		return
 	}
 
 	a.Worker.AddTask(tEvent.Task)
-	log.Printf("[w] added task %v", tEvent.Task.Id)
+	log.Info().Str("task-id", tEvent.Task.Id.String()).Msg("task queued for creation")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(tEvent.Task)
 }
@@ -41,29 +42,34 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 func (a *Api) StopTaskHandler(w http.ResponseWriter, r *http.Request) {
 	taskId := chi.URLParam(r, "taskId")
 	if taskId == "" {
-		log.Print("taskId parameter is missing")
+		log.Debug().Msg("taskId parameter is missing")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	taskUuid, err := uuid.Parse(taskId)
 	if err != nil {
-		log.Printf("taskId parameter isn't a valid uuid: %s", taskId)
+		log.Debug().Msg("taskId parameter isn't a valid uuid")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	t, err := a.Worker.Db.Get(taskUuid)
 	if err != nil {
-		log.Printf("failed to retrieve task with id %v from store, err: %v", taskUuid, err)
-		w.WriteHeader(http.StatusNotFound)
+		if errors.Is(err, store.ErrKeyNotFound) {
+			log.Debug().Str("task-id", taskUuid.String()).Msg("task not found in store")
+			w.WriteHeader(http.StatusNotFound)
+		} else {
+			log.Err(err).Str("task-id", taskUuid.String()).Msg("failed to retrieve task from store")
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 		return
 	}
 
 	t.State = task.Completed
 	a.Worker.AddTask(t) // Submit deletion request
 
-	log.Printf("task %v submitted for deletion, stopping container %s", t.Id, t.ContainerId)
+	log.Info().Str("task-id", t.Id.String()).Str("container-id", t.ContainerId).Msg("task submitted for deletion")
 	w.WriteHeader(http.StatusNoContent)
 }
 

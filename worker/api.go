@@ -2,10 +2,10 @@ package worker
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog/log"
 )
 
 type Api struct {
@@ -18,7 +18,7 @@ type Api struct {
 func (a *Api) StartRouter() {
 	a.initRouter()
 	if err := http.ListenAndServe(fmt.Sprintf("%s:%d", a.Address, a.Port), a.Router); err != nil {
-		log.Print(err)
+		log.Err(err).Msg("api server error")
 	}
 }
 

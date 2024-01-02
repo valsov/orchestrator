@@ -1,11 +1,12 @@
 package scheduler
 
 import (
-	"log"
 	"math"
 	"orchestrator/node"
 	"orchestrator/task"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // LIEB square ice constant
@@ -33,13 +34,13 @@ func (e *Epvm) Score(t task.Task, nodes []*node.Node) map[string]float64 {
 	for _, node := range nodes {
 		err := node.UpdateStats()
 		if err != nil {
-			log.Printf("failed to update node '%s' stats, err: %v", node.Name, err)
+			log.Err(err).Str("node", node.Name).Msg("failed to update node stats")
 			continue
 		}
 
 		cpuUsage, err := calculateAvgCpuUsage(node, node.Stats.CpuUsage())
 		if err != nil {
-			log.Printf("error calculating CPU usage for node %s, err: %v", node.Name, err)
+			log.Err(err).Str("node", node.Name).Msg("error calculating node CPU usage")
 			continue
 		}
 		cpuLoad := calculateLoad(cpuUsage, math.Pow(2, 0.8))

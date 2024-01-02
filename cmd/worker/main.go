@@ -2,11 +2,13 @@ package main
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"os"
 
+	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
 
+	"orchestrator/logger"
 	"orchestrator/worker"
 )
 
@@ -39,28 +41,41 @@ func main() {
 					return nil
 				},
 			},
+			&cli.StringFlag{
+				Name:  "logLevel",
+				Usage: `log level to use, allowed values: "debug", "info", "error"`,
+				Value: "info",
+				Action: func(ctx *cli.Context, v string) error {
+					if v != "debug" && v != "info" && v != "error" {
+						return errors.New(`invalid logLevel, allowed values: "debug", "info", "error"`)
+					}
+					return nil
+				},
+			},
 		},
 		Action: func(ctx *cli.Context) error {
-			startWorker(ctx.String("name"), ctx.Int("port"), ctx.String("storeType"))
+			name := ctx.String("name")
+			logger.Setup(ctx.String("logLevel"), fmt.Sprintf("worker-%s", name))
+			startWorker(name, ctx.Int("port"), ctx.String("storeType"))
 			return nil
 		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("")
 	}
 }
 
 func startWorker(name string, port int, storeType string) {
 	w, err := worker.New(name, storeType)
 	if err != nil {
-		log.Printf("worker creation failed: %v", err)
+		log.Err(err).Msg("worker creation failed")
 		return
 	}
 
 	defer func() {
 		if err := w.Close(); err != nil {
-			log.Printf("failed to stop worker, err: %v", err)
+			log.Err(err).Msg("failed to stop worker")
 		}
 	}()
 
@@ -71,7 +86,7 @@ func startWorker(name string, port int, storeType string) {
 
 	// Run API
 	host := "127.0.0.1"
-	log.Printf("Worker %s API listening on %s:%d", name, host, port)
+	log.Info().Msgf("Worker %s API listening on %s:%d", name, host, port)
 	api := worker.Api{Address: host, Port: port, Worker: w}
 	api.StartRouter()
 }

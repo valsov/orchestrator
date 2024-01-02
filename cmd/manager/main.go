@@ -2,11 +2,12 @@ package main
 
 import (
 	"errors"
-	"log"
 	"os"
 
+	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
 
+	"orchestrator/logger"
 	"orchestrator/manager"
 )
 
@@ -51,28 +52,40 @@ func main() {
 				Usage:    "address of container orchestration worker(s) API to manage",
 				Required: true,
 			},
+			&cli.StringFlag{
+				Name:  "logLevel",
+				Usage: `log level to use, allowed values: "debug", "info", "error"`,
+				Value: "info",
+				Action: func(ctx *cli.Context, v string) error {
+					if v != "debug" && v != "info" && v != "error" {
+						return errors.New(`invalid logLevel, allowed values: "debug", "info", "error"`)
+					}
+					return nil
+				},
+			},
 		},
 		Action: func(ctx *cli.Context) error {
+			logger.Setup(ctx.String("logLevel"), "manager")
 			startManager(ctx.Int("port"), ctx.String("storeType"), ctx.String("schedulerType"), ctx.StringSlice("worker"))
 			return nil
 		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("")
 	}
 }
 
 func startManager(port int, storeType string, schedulerType string, workers []string) {
 	m, err := manager.New(workers, schedulerType, storeType)
 	if err != nil {
-		log.Printf("manager creation failed: %v", err)
+		log.Err(err).Msg("manager creation failed")
 		return
 	}
 
 	defer func() {
 		if err := m.Close(); err != nil {
-			log.Printf("failed to stop manager, err: %v", err)
+			log.Err(err).Msg("failed to stop manager")
 		}
 	}()
 
@@ -84,7 +97,7 @@ func startManager(port int, storeType string, schedulerType string, workers []st
 
 	// Run API
 	host := "127.0.0.1"
-	log.Printf("Manager API listening on %s:%d", host, port)
+	log.Info().Msgf("Manager API listening on %s:%d", host, port)
 	api := manager.Api{Address: host, Port: port, Manager: m}
 	api.StartRouter()
 }
