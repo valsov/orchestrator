@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
@@ -19,7 +18,7 @@ import (
 )
 
 type Manager struct {
-	Pending       *queue.Queue
+	Pending       chan task.TaskEvent
 	TaskDb        store.Store[uuid.UUID, task.Task]
 	EventDb       store.Store[uuid.UUID, task.TaskEvent]
 	Workers       []string
@@ -71,7 +70,7 @@ func New(workers []string, schedulerType string, storeType string) (*Manager, er
 	}
 
 	return &Manager{
-		Pending:       queue.New(),
+		Pending:       make(chan task.TaskEvent, 10),
 		Workers:       workers,
 		WorkerNodes:   nodes,
 		TaskDb:        taskDb,
@@ -101,15 +100,22 @@ func (m *Manager) GetTasks() []task.Task {
 }
 
 func (m *Manager) AddTask(tEvent task.TaskEvent) {
-	m.Pending.Enqueue(tEvent)
+	// Run inside a goroutine to avoid blocking API call if chan is full
+	go func() {
+		m.Pending <- tEvent
+	}()
 }
 
 func (m *Manager) ProcessTasks() {
+	log.Debug().Msg("starting queued tasks processing")
 	for {
-		log.Debug().Msg("starting queued tasks processing")
-		m.sendWork()
-		log.Debug().Msg("queued tasks processing completed")
-		time.Sleep(10 * time.Second)
+		t, ok := <-m.Pending
+		if !ok {
+			log.Debug().Msg("tasks channel closed, stop processing")
+			return
+		}
+
+		m.sendWork(t)
 	}
 }
 
@@ -140,13 +146,7 @@ func (m *Manager) CheckNodesStats() {
 	}
 }
 
-func (m *Manager) sendWork() {
-	if m.Pending.Len() == 0 {
-		return
-	}
-
-	dequeued := m.Pending.Dequeue()
-	tEvent := dequeued.(task.TaskEvent)
+func (m *Manager) sendWork(tEvent task.TaskEvent) {
 	if err := m.EventDb.Put(tEvent.Id, tEvent); err != nil {
 		log.Err(err).Msg("failed to store dequeued task event")
 	}
@@ -207,7 +207,7 @@ func (m *Manager) sendWork() {
 			Str("node", wNode.Name).
 			Str("url", url).
 			Msg("failed to send post request")
-		m.Pending.Enqueue(tEvent) // Try again
+		m.AddTask(tEvent) // Try again
 		return
 	}
 	defer response.Body.Close()

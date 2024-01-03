@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
@@ -15,10 +14,10 @@ import (
 )
 
 type Worker struct {
-	Name  string
-	Queue *queue.Queue
-	Db    store.Store[uuid.UUID, task.Task]
-	Stats *stats.Stats
+	Name    string
+	Pending chan task.Task
+	Db      store.Store[uuid.UUID, task.Task]
+	Stats   *stats.Stats
 }
 
 func New(name string, storeType string) (*Worker, error) {
@@ -38,9 +37,9 @@ func New(name string, storeType string) (*Worker, error) {
 	}
 
 	return &Worker{
-		Name:  name,
-		Queue: queue.New(),
-		Db:    db,
+		Name:    name,
+		Pending: make(chan task.Task, 10),
+		Db:      db,
 	}, nil
 }
 
@@ -59,20 +58,25 @@ func (w *Worker) GetTasks() []task.Task {
 }
 
 func (w *Worker) AddTask(t task.Task) {
-	w.Queue.Enqueue(t)
+	// Run inside a goroutine to avoid blocking API call if chan is full
+	go func() {
+		w.Pending <- t
+	}()
 }
 
 func (w *Worker) RunTasks() {
+	log.Debug().Msg("starting queued tasks processing")
 	for {
-		if w.Queue.Len() == 0 {
-			log.Debug().Msg("no tasks to run")
-		} else {
-			err := w.runNextTask()
-			if err != nil {
-				log.Err(err).Msg("error processing task")
-			}
+		t, ok := <-w.Pending
+		if !ok {
+			log.Debug().Msg("tasks channel closed, stop processing")
+			return
 		}
-		time.Sleep(10 * time.Second)
+
+		err := w.runTask(t)
+		if err != nil {
+			log.Err(err).Msg("error processing task")
+		}
 	}
 }
 
@@ -149,14 +153,7 @@ func (w *Worker) InspectTask(t task.Task) (types.ContainerJSON, error) {
 	return d.Inspect(t.ContainerId)
 }
 
-func (w *Worker) runNextTask() error {
-	t := w.Queue.Dequeue()
-	if t == nil {
-		log.Debug().Msg("no task in queue")
-		return nil
-	}
-
-	queuedTask := t.(task.Task)
+func (w *Worker) runTask(queuedTask task.Task) error {
 	storedTask, err := w.Db.Get(queuedTask.Id)
 	if err != nil {
 		storedTask = queuedTask
