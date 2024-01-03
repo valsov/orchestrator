@@ -24,7 +24,7 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 	tEvent := task.TaskEvent{}
 	err := data.Decode(&tEvent)
 	if err != nil {
-		log.Err(err).Msg("start task handler error: failed to unmarshall request body") // todo: add body to log props
+		log.Err(err).Msg("start task handler error: failed to unmarshall request body")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ErrResponse{
 			Message:        fmt.Sprintf("error unmarshalling request body: %v", err),

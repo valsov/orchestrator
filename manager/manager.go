@@ -194,7 +194,9 @@ func (m *Manager) sendWork() {
 
 	jsonTaskEvent, err := json.Marshal(tEvent)
 	if err != nil {
-		taskLogger.Err(err).Msg("failed to marshal task event") // todo: add object to log context
+		taskLogger.Err(err).
+			Interface("task-event", tEvent).
+			Msg("failed to marshal task event")
 		return
 	}
 
@@ -270,7 +272,7 @@ func (m *Manager) updateTasks() {
 		var tasks []*task.Task
 		err = decoder.Decode(&tasks)
 		if err != nil {
-			workerLogger.Err(err).Msg("error decoding tasks reponse") // todo: add object to log context
+			workerLogger.Err(err).Msg("error decoding tasks reponse")
 			continue
 		}
 
@@ -384,7 +386,9 @@ func (m *Manager) restartTask(t task.Task) {
 	}
 	data, err := json.Marshal(tEvent)
 	if err != nil {
-		taskLogger.Err(err).Msg("unable to marshal task object") // todo: add object to log context
+		taskLogger.Err(err).
+			Interface("task-event", tEvent).
+			Msg("unable to marshal task object")
 		return
 	}
 
@@ -404,7 +408,7 @@ func (m *Manager) restartTask(t task.Task) {
 		e := worker.ErrResponse{}
 		err := d.Decode(&e)
 		if err != nil {
-			taskLogger.Err(err).Msg("error decoding error response") // todo: add object to log context
+			taskLogger.Err(err).Msg("error decoding error response")
 			return
 		}
 		taskLogger.Error().
@@ -417,7 +421,7 @@ func (m *Manager) restartTask(t task.Task) {
 	newTask := task.Task{}
 	err = d.Decode(&newTask)
 	if err != nil {
-		taskLogger.Err(err).Msg("error decoding worker response") // todo: add object to log context
+		taskLogger.Err(err).Msg("error decoding worker response")
 		return
 	}
 }
