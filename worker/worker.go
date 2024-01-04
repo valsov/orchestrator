@@ -26,6 +26,8 @@ type Worker struct {
 }
 
 // Create a new worker with the given name and store type
+//
+// The Close method should be called when the worker is no longer used
 func New(name string, storeType string) (*Worker, error) {
 	var db store.Store[uuid.UUID, task.Task]
 	switch storeType {

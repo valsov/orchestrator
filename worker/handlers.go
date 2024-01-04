@@ -18,7 +18,7 @@ type ErrResponse struct {
 	Message        string
 }
 
-func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
+func (a *Api) startTaskHandler(w http.ResponseWriter, r *http.Request) {
 	data := json.NewDecoder(r.Body)
 
 	tEvent := task.TaskEvent{}
@@ -39,7 +39,7 @@ func (a *Api) StartTaskHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tEvent.Task)
 }
 
-func (a *Api) StopTaskHandler(w http.ResponseWriter, r *http.Request) {
+func (a *Api) stopTaskHandler(w http.ResponseWriter, r *http.Request) {
 	taskId := chi.URLParam(r, "taskId")
 	if taskId == "" {
 		log.Debug().Msg("taskId parameter is missing")
@@ -73,13 +73,13 @@ func (a *Api) StopTaskHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *Api) GetTasksHandler(w http.ResponseWriter, r *http.Request) {
+func (a *Api) getTasksHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(a.Worker.GetTasks())
 }
 
-func (a *Api) GetMetricsHandler(w http.ResponseWriter, r *http.Request) {
+func (a *Api) getMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(a.Worker.Stats)
