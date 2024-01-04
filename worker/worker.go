@@ -13,13 +13,19 @@ import (
 	"orchestrator/task"
 )
 
+// Worker manages the execution of tasks
 type Worker struct {
-	Name    string
+	// Name of the worker
+	Name string
+	// Pending tasks to be executed
 	Pending chan task.Task
-	Db      store.Store[uuid.UUID, task.Task]
-	Stats   *stats.Stats
+	// Tasks store
+	Db store.Store[uuid.UUID, task.Task]
+	// Stats of the worker
+	Stats *stats.Stats
 }
 
+// Create a new worker with the given name and store type
 func New(name string, storeType string) (*Worker, error) {
 	var db store.Store[uuid.UUID, task.Task]
 	switch storeType {
@@ -43,10 +49,12 @@ func New(name string, storeType string) (*Worker, error) {
 	}, nil
 }
 
+// Cleanup the worker's resources
 func (w *Worker) Close() error {
 	return w.Db.Close()
 }
 
+// Retrieve all tasks from the data store
 func (w *Worker) GetTasks() []task.Task {
 	taskList, err := w.Db.List()
 	if err != nil {
@@ -57,6 +65,7 @@ func (w *Worker) GetTasks() []task.Task {
 	return taskList
 }
 
+// Add a task to the pending queue
 func (w *Worker) AddTask(t task.Task) {
 	// Run inside a goroutine to avoid blocking API call if chan is full
 	go func() {
@@ -64,6 +73,7 @@ func (w *Worker) AddTask(t task.Task) {
 	}()
 }
 
+// Start the pending tasks execution loop
 func (w *Worker) RunTasks() {
 	log.Debug().Msg("starting queued tasks processing")
 	for {
@@ -80,6 +90,7 @@ func (w *Worker) RunTasks() {
 	}
 }
 
+// Start the tasks update loop, it updates the status and informations of registered tasks
 func (w *Worker) UpdateTasks() {
 	for {
 		log.Debug().Msg("checking tasks status")
@@ -89,7 +100,48 @@ func (w *Worker) UpdateTasks() {
 	}
 }
 
-func (w *Worker) StartTask(t task.Task) error {
+// Start the stats collection loop
+func (w *Worker) CollectStats() {
+	for {
+		w.Stats = stats.GetStats()
+		time.Sleep(10 * time.Second)
+	}
+}
+
+// Decide if the given task should be started or stopped and execute the corresponding action
+func (w *Worker) runTask(queuedTask task.Task) error {
+	storedTask, err := w.Db.Get(queuedTask.Id)
+	if err != nil {
+		storedTask = queuedTask
+		if err := w.Db.Put(storedTask.Id, storedTask); err != nil {
+			log.Err(err).Str("task-id", storedTask.Id.String()).Msg("failed to store task")
+		}
+	}
+
+	if !task.ValidStateTransition(storedTask.State, queuedTask.State) {
+		return fmt.Errorf("invalid state transition from %v to %v", storedTask.State, queuedTask.State)
+	}
+
+	switch queuedTask.State {
+	case task.Scheduled:
+		if queuedTask.ContainerId != "" {
+			// Case of a restart when the container is still running
+			err = w.stopTask(queuedTask)
+			if err != nil {
+				log.Err(err).Str("task-id", storedTask.Id.String()).Msg("failed to stop task")
+				return err
+			}
+		}
+		return w.startTask(queuedTask)
+	case task.Completed:
+		return w.stopTask(queuedTask)
+	default:
+		return fmt.Errorf("running a task shouldn't be represented with a %v state", queuedTask.State)
+	}
+}
+
+// Start a task by creating and starting a container for it
+func (w *Worker) startTask(t task.Task) error {
 	t.StartTime = time.Now().UTC()
 	config := task.NewConfig(t)
 	d := task.NewDocker(config)
@@ -117,7 +169,8 @@ func (w *Worker) StartTask(t task.Task) error {
 	return err
 }
 
-func (w *Worker) StopTask(t task.Task) error {
+// Stop a task by stopping and removing the linked container
+func (w *Worker) stopTask(t task.Task) error {
 	config := task.NewConfig(t)
 	d := task.NewDocker(config)
 
@@ -140,50 +193,14 @@ func (w *Worker) StopTask(t task.Task) error {
 	return nil
 }
 
-func (w *Worker) CollectStats() {
-	for {
-		w.Stats = stats.GetStats()
-		time.Sleep(10 * time.Second)
-	}
-}
-
-func (w *Worker) InspectTask(t task.Task) (types.ContainerJSON, error) {
+// Inspect the container related to the given task
+func (w *Worker) inspectTask(t task.Task) (types.ContainerJSON, error) {
 	config := task.NewConfig(t)
 	d := task.NewDocker(config)
 	return d.Inspect(t.ContainerId)
 }
 
-func (w *Worker) runTask(queuedTask task.Task) error {
-	storedTask, err := w.Db.Get(queuedTask.Id)
-	if err != nil {
-		storedTask = queuedTask
-		if err := w.Db.Put(storedTask.Id, storedTask); err != nil {
-			log.Err(err).Str("task-id", storedTask.Id.String()).Msg("failed to store task")
-		}
-	}
-
-	if !task.ValidStateTransition(storedTask.State, queuedTask.State) {
-		return fmt.Errorf("invalid state transition from %v to %v", storedTask.State, queuedTask.State)
-	}
-
-	switch queuedTask.State {
-	case task.Scheduled:
-		if queuedTask.ContainerId != "" {
-			// Case of a restart when the container is still running
-			err = w.StopTask(queuedTask)
-			if err != nil {
-				log.Err(err).Str("task-id", storedTask.Id.String()).Msg("failed to stop task")
-				return err
-			}
-		}
-		return w.StartTask(queuedTask)
-	case task.Completed:
-		return w.StopTask(queuedTask)
-	default:
-		return fmt.Errorf("running a task shouldn't be represented with a %v state", queuedTask.State)
-	}
-}
-
+// Update the status and other informations of all registered tasks
 func (w *Worker) updateTasks() {
 	tasks, err := w.Db.List()
 	if err != nil {
@@ -198,7 +215,7 @@ func (w *Worker) updateTasks() {
 		taskLogger := log.With().
 			Str("task-id", t.Id.String()).
 			Logger()
-		container, err := w.InspectTask(t)
+		container, err := w.inspectTask(t)
 		update := false
 		if err != nil {
 			taskLogger.Err(err).Msg("task inspection error")
