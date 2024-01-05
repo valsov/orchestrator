@@ -15,14 +15,10 @@ import (
 
 // Worker manages the execution of tasks
 type Worker struct {
-	// Name of the worker
-	Name string
-	// Pending tasks to be executed
-	Pending chan task.Task
-	// Tasks store
-	Db store.Store[uuid.UUID, task.Task]
-	// Stats of the worker
-	Stats *stats.Stats
+	Name    string                            // Name of the worker
+	Pending chan task.Task                    // Pending tasks to be executed
+	Db      store.Store[uuid.UUID, task.Task] // Tasks store
+	Stats   *stats.Stats                      // Stats of the worker
 }
 
 // Create a new worker with the given name and store type

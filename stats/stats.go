@@ -5,6 +5,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// Machine stats
 type Stats struct {
 	MemoryStats *linux.MemInfo
 	DiskStats   *linux.Disk
@@ -50,16 +51,17 @@ func (s *Stats) CpuUsage() float64 {
 	return (float64(total) - float64(idle)) / float64(total)
 }
 
+// Get the machine stats
 func GetStats() *Stats {
 	return &Stats{
-		MemoryStats: GetMemoryInfo(),
-		DiskStats:   GetDiskInfo(),
-		CpuStats:    GetCpuStats(),
-		LoadStats:   GetLoadAvg(),
+		MemoryStats: getMemoryInfo(),
+		DiskStats:   getDiskInfo(),
+		CpuStats:    getCpuStats(),
+		LoadStats:   getLoadAvg(),
 	}
 }
 
-func GetMemoryInfo() *linux.MemInfo {
+func getMemoryInfo() *linux.MemInfo {
 	memstats, err := linux.ReadMemInfo("/proc/meminfo")
 	if err != nil {
 		log.Err(err).Msg("error reading from /proc/meminfo")
@@ -68,7 +70,7 @@ func GetMemoryInfo() *linux.MemInfo {
 	return memstats
 }
 
-func GetDiskInfo() *linux.Disk {
+func getDiskInfo() *linux.Disk {
 	diskstats, err := linux.ReadDisk("/")
 	if err != nil {
 		log.Err(err).Msg("error reading from /")
@@ -77,7 +79,7 @@ func GetDiskInfo() *linux.Disk {
 	return diskstats
 }
 
-func GetCpuStats() *linux.CPUStat {
+func getCpuStats() *linux.CPUStat {
 	stats, err := linux.ReadStat("/proc/stat")
 	if err != nil {
 		log.Err(err).Msg("error reading from /proc/stat")
@@ -86,7 +88,7 @@ func GetCpuStats() *linux.CPUStat {
 	return &stats.CPUStatAll
 }
 
-func GetLoadAvg() *linux.LoadAvg {
+func getLoadAvg() *linux.LoadAvg {
 	loadavg, err := linux.ReadLoadAvg("/proc/loadavg")
 	if err != nil {
 		log.Err(err).Msg("error reading from /proc/loadavg")

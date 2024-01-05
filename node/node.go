@@ -8,6 +8,7 @@ import (
 	"orchestrator/stats"
 )
 
+// Worker node with machine load information
 type Node struct {
 	Name            string
 	Api             string
@@ -20,6 +21,7 @@ type Node struct {
 	TaskCount       int
 }
 
+// Create a new worker node
 func NewNode(name string, api string, role string) Node {
 	return Node{
 		Name: name,
@@ -28,6 +30,9 @@ func NewNode(name string, api string, role string) Node {
 	}
 }
 
+// Update the worker node stats with the current machine load information
+//
+// Those data are retrieved from the worker API
 func (n *Node) UpdateStats() error {
 	var resp *http.Response
 	var err error
