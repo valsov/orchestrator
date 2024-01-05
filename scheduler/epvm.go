@@ -12,9 +12,21 @@ import (
 // LIEB square ice constant
 const LIEB = 1.53960071783900203869
 
+// Scheduler which computes a score based on the worker's current system load statistics
+// to pick the most suitable worker for the given task
 type Epvm struct{}
 
-func (e *Epvm) SelectCandidateNodes(t task.Task, nodes []*node.Node) []*node.Node {
+func (e *Epvm) SelectNode(t task.Task, nodes []*node.Node) *node.Node {
+	candidates := e.selectCandidateNodes(t, nodes)
+	if len(candidates) == 0 {
+		return nil
+	}
+	scores := e.score(t, candidates)
+	return e.pick(scores, candidates)
+}
+
+// Get suitable worker nodes to run the given task, based on the disk space requirement
+func (e *Epvm) selectCandidateNodes(t task.Task, nodes []*node.Node) []*node.Node {
 	var candidates []*node.Node
 	for node := range nodes {
 		if checkDisk(t, nodes[node].Disk-nodes[node].DiskAllocated) {
@@ -24,7 +36,7 @@ func (e *Epvm) SelectCandidateNodes(t task.Task, nodes []*node.Node) []*node.Nod
 	return candidates
 }
 
-func (e *Epvm) Score(t task.Task, nodes []*node.Node) map[string]float64 {
+func (e *Epvm) score(t task.Task, nodes []*node.Node) map[string]float64 {
 	if len(nodes) == 0 {
 		return nil
 	}
@@ -57,7 +69,7 @@ func (e *Epvm) Score(t task.Task, nodes []*node.Node) map[string]float64 {
 	return nodeScores
 }
 
-func (e *Epvm) Pick(scores map[string]float64, candidates []*node.Node) *node.Node {
+func (e *Epvm) pick(scores map[string]float64, candidates []*node.Node) *node.Node {
 	if len(candidates) == 0 {
 		return nil
 	}

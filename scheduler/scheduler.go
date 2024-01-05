@@ -5,8 +5,8 @@ import (
 	"orchestrator/task"
 )
 
+// Selector of worker node to run a task
 type Scheduler interface {
-	SelectCandidateNodes(t task.Task, nodes []*node.Node) []*node.Node
-	Score(t task.Task, nodes []*node.Node) map[string]float64
-	Pick(scores map[string]float64, nodes []*node.Node) *node.Node
+	// Select the most suitable worker node to run the given task
+	SelectNode(t task.Task, nodes []*node.Node) *node.Node
 }
