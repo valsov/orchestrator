@@ -17,6 +17,8 @@ import (
 	"orchestrator/worker"
 )
 
+// Manager sends requests of task creation or deletion to workers
+// and keeps track of sent tasks with their state
 type Manager struct {
 	Pending       chan task.TaskEvent
 	TaskDb        store.Store[uuid.UUID, task.Task]
@@ -28,6 +30,9 @@ type Manager struct {
 	Scheduler     scheduler.Scheduler
 }
 
+// Create a new manager with a collection of workers, a scheduler type and a data store type
+//
+// The Close method should be called when the manager is no longer used
 func New(workers []string, schedulerType string, storeType string) (*Manager, error) {
 	workerTaskMap := make(map[string][]uuid.UUID)
 	nodes := make([]*node.Node, len(workers))
@@ -81,6 +86,7 @@ func New(workers []string, schedulerType string, storeType string) (*Manager, er
 	}, nil
 }
 
+// Cleanup the manager's resources
 func (m *Manager) Close() error {
 	err1 := m.TaskDb.Close()
 	err2 := m.EventDb.Close()
@@ -90,6 +96,7 @@ func (m *Manager) Close() error {
 	return err2
 }
 
+// Retrieve all stored tasks
 func (m *Manager) GetTasks() []task.Task {
 	tasks, err := m.TaskDb.List()
 	if err != nil {
@@ -99,6 +106,7 @@ func (m *Manager) GetTasks() []task.Task {
 	return tasks
 }
 
+// Add a task to the pending queue
 func (m *Manager) AddTask(tEvent task.TaskEvent) {
 	// Run inside a goroutine to avoid blocking API call if chan is full
 	go func() {
@@ -106,6 +114,7 @@ func (m *Manager) AddTask(tEvent task.TaskEvent) {
 	}()
 }
 
+// Start the pending tasks execution loop
 func (m *Manager) ProcessTasks() {
 	log.Debug().Msg("starting queued tasks processing")
 	for {
@@ -119,6 +128,7 @@ func (m *Manager) ProcessTasks() {
 	}
 }
 
+// Start the task health monitoring execution loop
 func (m *Manager) CheckTasksHealth() {
 	for {
 		log.Debug().Msg("checking tasks health")
@@ -128,6 +138,7 @@ func (m *Manager) CheckTasksHealth() {
 	}
 }
 
+// Start the task state monitoring execution loop
 func (m *Manager) UpdateTasks() {
 	for {
 		log.Debug().Msg("checking for workers' tasks update")
@@ -137,6 +148,7 @@ func (m *Manager) UpdateTasks() {
 	}
 }
 
+// Start the worker nodes stats retrieval execution loop
 func (m *Manager) CheckNodesStats() {
 	for {
 		log.Debug().Msg("checking nodes stats")
@@ -146,6 +158,8 @@ func (m *Manager) CheckNodesStats() {
 	}
 }
 
+// Process the next pending task,
+// send the action to the most adequate worker
 func (m *Manager) sendWork(tEvent task.TaskEvent) {
 	if err := m.EventDb.Put(tEvent.Id, tEvent); err != nil {
 		log.Err(err).Msg("failed to store dequeued task event")
@@ -156,6 +170,7 @@ func (m *Manager) sendWork(tEvent task.TaskEvent) {
 		Logger()
 	taskLogger.Debug().Msg("starting task processing")
 
+	// Try to find if the task is already managed by a specific worker
 	taskWorker, found := m.TaskWorkerMap[tEvent.Id]
 	if found {
 		persistedTask, err := m.TaskDb.Get(tEvent.Task.Id)
@@ -238,6 +253,7 @@ func (m *Manager) sendWork(tEvent task.TaskEvent) {
 	}
 }
 
+// Update machine stats for all registered worker nodes
 func (m *Manager) updateNodesStats() {
 	for _, node := range m.WorkerNodes {
 		err := node.UpdateStats()
@@ -247,6 +263,7 @@ func (m *Manager) updateNodesStats() {
 	}
 }
 
+// Retrieve and update tasks state from workers
 func (m *Manager) updateTasks() {
 	for _, worker := range m.Workers {
 		workerLogger := log.Logger.
@@ -282,6 +299,7 @@ func (m *Manager) updateTasks() {
 	}
 }
 
+// Request container stop for the given task
 func (m *Manager) stopTask(taskId uuid.UUID, worker string) {
 	var wNode *node.Node
 	for _, n := range m.WorkerNodes {
@@ -326,6 +344,7 @@ func (m *Manager) stopTask(taskId uuid.UUID, worker string) {
 	taskLogger.Info().Msg("task has been scheduled to stop")
 }
 
+// Update stored task with new informations
 func (m *Manager) updateTask(t *task.Task) {
 	taskLogger := log.Logger.
 		With().
@@ -351,6 +370,7 @@ func (m *Manager) updateTask(t *task.Task) {
 	taskLogger.Debug().Msg("task updated in local database")
 }
 
+// Check if tasks are in failed state and try to restart them
 func (m *Manager) checkTasksHealth() {
 	tasks := m.GetTasks()
 	for _, t := range tasks {
@@ -364,6 +384,7 @@ func (m *Manager) checkTasksHealth() {
 	}
 }
 
+// Request the restart of the given task
 func (m *Manager) restartTask(t task.Task) {
 	taskLogger := log.Logger.
 		With().
@@ -426,11 +447,13 @@ func (m *Manager) restartTask(t task.Task) {
 	}
 }
 
+// Select the most adequate worker to execute the given task
+//
+// The result of this operation depends on the configured scheduler
 func (m *Manager) selectWorker(t task.Task) (*node.Node, error) {
-	candidates := m.Scheduler.SelectCandidateNodes(t, m.WorkerNodes)
-	if len(candidates) == 0 {
+	selectedNode := m.Scheduler.SelectNode(t, m.WorkerNodes)
+	if selectedNode == nil {
 		return nil, fmt.Errorf("no available candidates match resource request for task %v", t.Id)
 	}
-	scores := m.Scheduler.Score(t, candidates)
-	return m.Scheduler.Pick(scores, candidates), nil
+	return selectedNode, nil
 }
