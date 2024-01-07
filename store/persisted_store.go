@@ -78,7 +78,7 @@ func (s *PersistedStore[TKey, TVal]) Get(key TKey) (TVal, error) {
 
 		jsonVal := b.Get([]byte(key.String()))
 		if jsonVal == nil {
-			return fmt.Errorf("value with key %s not found", key)
+			return ErrKeyNotFound
 		}
 
 		return json.Unmarshal(jsonVal, &value)

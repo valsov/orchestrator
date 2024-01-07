@@ -1,9 +1,5 @@
 package store
 
-import (
-	"fmt"
-)
-
 type MemoryStore[TKey comparable, TVal any] struct {
 	Db map[TKey]TVal
 }
@@ -30,7 +26,7 @@ func (s *MemoryStore[TKey, TVal]) Get(key TKey) (TVal, error) {
 	storedTask, found := s.Db[key]
 	if !found {
 		var defaultVal TVal
-		return defaultVal, fmt.Errorf("item with key %v not found", key)
+		return defaultVal, ErrKeyNotFound
 	}
 	return storedTask, nil
 }
