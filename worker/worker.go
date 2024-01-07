@@ -142,9 +142,9 @@ func (w *Worker) runTask(queuedTask task.Task) error {
 func (w *Worker) startTask(t task.Task) error {
 	t.StartTime = time.Now().UTC()
 	config := task.NewConfig(t)
-	d := task.NewDocker(config)
+	c := task.NewContainerClient()
 
-	containerId, err := d.Run()
+	containerId, err := c.Run(config)
 	taskLogger := log.With().
 		Str("task-id", t.Id.String()).
 		Logger()
@@ -169,10 +169,8 @@ func (w *Worker) startTask(t task.Task) error {
 
 // Stop a task by stopping and removing the linked container
 func (w *Worker) stopTask(t task.Task) error {
-	config := task.NewConfig(t)
-	d := task.NewDocker(config)
-
-	err := d.Stop(t.ContainerId)
+	c := task.NewContainerClient()
+	err := c.Stop(t.ContainerId)
 	taskLogger := log.With().
 		Str("task-id", t.Id.String()).
 		Str("container-id", t.ContainerId).
@@ -193,9 +191,8 @@ func (w *Worker) stopTask(t task.Task) error {
 
 // Inspect the container related to the given task
 func (w *Worker) inspectTask(t task.Task) (types.ContainerJSON, error) {
-	config := task.NewConfig(t)
-	d := task.NewDocker(config)
-	return d.Inspect(t.ContainerId)
+	c := task.NewContainerClient()
+	return c.Inspect(t.ContainerId)
 }
 
 // Update the status and other informations of all registered tasks
